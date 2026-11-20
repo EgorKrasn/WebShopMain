@@ -1,6 +1,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { api } from '../services/api.js'
+import * as XLSX from 'xlsx'
+import { api, resolveImageUrl } from '../services/api.js'
+
 
 const props = defineProps({
   userRole: {
@@ -18,12 +21,19 @@ const props = defineProps({
   selectedCategory: {
     type: String,
     default: ''
+  },
+  selectedSubcategory: {
+    type: String,
+    default: ''
   }
 })
 
-const emit = defineEmits(['add-to-cart', 'reset-filters', 'select-product'])
+
+const emit = defineEmits(['add-to-cart', 'update-qty', 'set-qty', 'reset-filters', 'select-product', 'products-loaded'])
 
 const isLoadingProducts = ref(false)
+
+
 
 const products = ref([
   {
@@ -92,6 +102,7 @@ const products = ref([
   }
 ])
 
+
 onMounted(async () => {
   isLoadingProducts.value = true
   try {
@@ -102,6 +113,7 @@ onMounted(async () => {
   } catch (err) {
     console.warn('Не удалось загрузить каталог с сервера, показаны локальные данные:', err.message)
   } finally {
+    emit('products-loaded', products.value)
     isLoadingProducts.value = false
   }
 })
@@ -111,6 +123,9 @@ const filteredProducts = computed(() => {
     const matchesCategory =
       !props.selectedCategory || product.category === props.selectedCategory
 
+    const matchesSubcategory =
+      !props.selectedSubcategory || product.subcategory === props.selectedSubcategory
+
     const query = props.searchQuery.trim().toLowerCase()
     const matchesSearch =
       !query ||
@@ -118,13 +133,14 @@ const filteredProducts = computed(() => {
       product.sku.toLowerCase().includes(query) ||
       product.specs.toLowerCase().includes(query)
 
-    return matchesCategory && matchesSearch
+    return matchesCategory && matchesSubcategory && matchesSearch
   })
 })
 
 const hasActiveFilters = computed(() => {
-  return Boolean(props.selectedCategory || props.searchQuery.trim())
+  return Boolean(props.selectedCategory || props.selectedSubcategory || props.searchQuery.trim())
 })
+
 
 const formatPrice = (value) => {
   return Number(value).toFixed(2).replace('.', ',')
@@ -134,6 +150,57 @@ const getItemQtyInCart = (cartItems, productId) => {
   const found = cartItems.find((item) => item.id === productId)
   return found ? found.quantity : 0
 }
+
+const handleDirectQtyInput = (productId, event) => {
+  const parsed = parseInt(event.target.value, 10)
+  if (isNaN(parsed) || parsed <= 0) {
+    // Если ввели 0 или стёрли значение — удаляем товар из корзины (вернётся кнопка «В корзину»)
+    emit('set-qty', { id: productId, quantity: 0 })
+  } else {
+    emit('set-qty', { id: productId, quantity: parsed })
+  }
+}
+
+const exportPriceListToExcel = () => {
+  if (!products.value || products.value.length === 0) return
+
+  // 1. Формируем строки таблицы с понятными заголовками
+  const rows = products.value.map((p) => ({
+    'Артикул': p.sku || '',
+    'Категория': p.category || '',
+    'Наименование': p.name || '',
+    'Цвет': p.colorName || '—',
+    'Характеристики': p.specs || '',
+    'Оптовая цена (BYN)': Number(p.wholesalePrice || 0),
+    'Мин. партия (шт.)': Number(p.minWholesaleQty || 1),
+    'Остаток на складе (шт.)': Number(p.stock ?? 0),
+    'РРЦ / Розница (BYN)': Number(p.retailPrice || 0)
+  }))
+
+  // 2. Создаём лист Excel из массива объектов
+  const worksheet = XLSX.utils.json_to_sheet(rows)
+
+  // 3. Автоматически рассчитываем ширину каждой колонки под самый длинный текст
+  const headers = Object.keys(rows[0])
+  worksheet['!cols'] = headers.map((header) => {
+    const maxDataLength = rows.reduce((maxLen, row) => {
+      const cellText = String(row[header] ?? '')
+      return Math.max(maxLen, cellText.length)
+    }, header.length)
+
+    // Добавляем запас +4 символа, чтобы текст не упирался в границы ячеек
+    return { wch: maxDataLength + 4 }
+  })
+
+  // 4. Создаём книгу Excel и скачиваем её как настоящий .xlsx файл
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Прайс-лист Сандринтайм')
+
+  const today = new Date().toISOString().slice(0, 10)
+  XLSX.writeFile(workbook, `Price_SandrinTime_${today}.xlsx`)
+}
+
+
 </script>
 
 
@@ -146,17 +213,27 @@ const getItemQtyInCart = (cartItems, productId) => {
       <div class="catalog-header">
         <div>
           <h1 class="catalog-title">
-            {{ selectedCategory || 'Каталог часов' }}
+            {{ selectedSubcategory || selectedCategory || 'Каталог часов' }}
           </h1>
+
           <p class="catalog-subtitle">
             Найдено моделей: {{ filteredProducts.length }} • Оптово-розничные поставки по Беларуси
           </p>
         </div>
 
-        <div class="price-legend" :class="{ wholesale: userRole === 'wholesale' }">
-          <span v-if="userRole === 'wholesale'">🏢 Вы вошли как юрлицо — активны <strong>оптовые цены</strong></span>
-          <span v-else>🛍️ Показаны розничные цены (опт доступен после регистрации по УНП)</span>
+      <div v-if="userRole === 'wholesale'" class="wholesale-header-actions">
+        <div class="wholesale-badge">
+          🏢 Вы вошли как юрлицо — активны <strong>оптовые цены</strong>
         </div>
+        <button
+          type="button"
+          class="btn-download-price"
+          @click="exportPriceListToExcel"
+          title="Скачать актуальный оптовый прайс-лист в формате Excel (.xlsx)"
+        >
+          📥 Скачать прайс (Excel)
+        </button>
+      </div>
       </div>
 
       <!-- Панель активных фильтров -->
@@ -165,10 +242,14 @@ const getItemQtyInCart = (cartItems, productId) => {
           <span v-if="selectedCategory" class="filter-chip">
             Категория: <strong>{{ selectedCategory }}</strong>
           </span>
+          <span v-if="selectedSubcategory" class="filter-chip">
+            Подкатегория: <strong>{{ selectedSubcategory }}</strong>
+          </span>
           <span v-if="searchQuery.trim()" class="filter-chip">
             Поиск: <strong>«{{ searchQuery.trim() }}»</strong>
           </span>
         </div>
+
         <button type="button" class="btn-reset-filters" @click="emit('reset-filters')">
           ✕ Сбросить фильтры
         </button>
@@ -186,7 +267,12 @@ const getItemQtyInCart = (cartItems, productId) => {
 
       <!-- Адаптивная сетка карточек -->
       <div v-else class="products-grid">
-        <article v-for="product in filteredProducts" :key="product.id" class="product-card">
+        <article
+          v-for="product in filteredProducts"
+          :key="product.id"
+          class="product-card"
+          :class="{ 'out-of-stock': (product.stock ?? 0) <= 0 }"
+        >
           
           <!-- Клик по фото открывает подробную карточку -->
           <div class="image-placeholder" @click="emit('select-product', product)">
@@ -195,15 +281,18 @@ const getItemQtyInCart = (cartItems, productId) => {
             
             <img 
               v-if="product.image" 
-              :src="product.image" 
+              :src="resolveImageUrl(product.image)" 
               :alt="product.name" 
               class="product-photo"
             />
+
             <div v-else class="placeholder-center">
               <span class="placeholder-icon">{{ product.icon }}</span>
               <span class="placeholder-text">Фото товара</span>
               <span class="placeholder-hint">400 × 400 px</span>
             </div>
+
+            
           </div>
 
           <!-- Информация о товаре -->
@@ -216,44 +305,67 @@ const getItemQtyInCart = (cartItems, productId) => {
 
             <!-- Блок цен (розница + опт) -->
             <div class="price-box">
-              <template v-if="userRole === 'wholesale'">
-                <div class="main-price-row">
-                  <span class="main-price wholesale">{{ formatPrice(product.wholesalePrice) }} BYN</span>
-                  <span class="price-badge wholesale">Опт</span>
-                </div>
-                <div class="secondary-price-row">
-                  Розница: <span class="crossed">{{ formatPrice(product.retailPrice) }} BYN</span>
-                </div>
-              </template>
+            <template v-if="userRole === 'wholesale'">
+              <div class="price-wholesale">{{ formatPrice(product.wholesalePrice) }} BYN</div>
+              <div class="price-retail-sub">Розница: {{ formatPrice(product.retailPrice) }} BYN</div>
+            </template>
+            <template v-else>
+              <div class="price-retail">{{ formatPrice(product.retailPrice) }} BYN</div>
+            </template>
 
-              <template v-else>
-                <div class="main-price-row">
-                  <span class="main-price">{{ formatPrice(product.retailPrice) }} BYN</span>
-                  <span class="price-badge">Розница</span>
-                </div>
-                <div class="secondary-price-row">
-                  Опт (от {{ product.minWholesaleQty }} шт.): <strong>{{ formatPrice(product.wholesalePrice) }} BYN</strong>
-                </div>
-              </template>
             </div>
 
             <!-- Кнопка добавления в корзину -->
-            <button 
-              type="button" 
+            <!-- Кнопка добавления или счётчик количества (если товар уже в корзине) -->
+            <div v-if="getItemQtyInCart(cartItems, product.id) > 0" class="catalog-qty-control">
+              <button
+                type="button"
+                class="cat-qty-btn"
+                aria-label="Уменьшить количество"
+                @click="emit('update-qty', { id: product.id, delta: -1 })"
+              >
+                −
+              </button>
+
+              <input
+                type="number"
+                min="1"
+                class="cat-qty-input"
+                :value="getItemQtyInCart(cartItems, product.id)"
+                aria-label="Количество в корзине"
+                @change="handleDirectQtyInput(product.id, $event)"
+              />
+
+              <button
+                type="button"
+                class="cat-qty-btn"
+                aria-label="Увеличить количество"
+                @click="emit('update-qty', { id: product.id, delta: 1 })"
+              >
+                +
+              </button>
+            </div>
+
+            <button
+              v-else
+              type="button"
               class="btn-add-cart"
-              :class="{ 'in-cart': getItemQtyInCart(cartItems, product.id) > 0 }"
+              :disabled="(product.stock ?? 0) <= 0"
               @click="emit('add-to-cart', product)"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                <circle cx="9" cy="21" r="1"></circle>
-                <circle cx="20" cy="21" r="1"></circle>
-                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
-              </svg>
-              <span v-if="getItemQtyInCart(cartItems, product.id) > 0">
-                В корзине ({{ getItemQtyInCart(cartItems, product.id) }} шт.) • +1
-              </span>
-              <span v-else>В корзину</span>
+              <span v-if="(product.stock ?? 0) <= 0">Нет в наличии</span>
+              <template v-else>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                  <circle cx="9" cy="21" r="1"></circle>
+                  <circle cx="20" cy="21" r="1"></circle>
+                  <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+                </svg>
+                <span>В корзину</span>
+              </template>
             </button>
+
+
+
           </div>
 
         </article>
@@ -266,7 +378,7 @@ const getItemQtyInCart = (cartItems, productId) => {
 
 
 <style scoped>
-<style scoped>
+
 .catalog-section {
   width: 100%;
   padding: 40px 32px 48px;
@@ -350,34 +462,33 @@ const getItemQtyInCart = (cartItems, productId) => {
 
 .image-placeholder {
   position: relative;
-  height: 210px;
-  background-color: #ffffff; /* Чистый белый фон, чтобы сливался с белым фоном фото часов */
-  border-bottom: 1px solid #f1f5f9;
+  padding: 38px 16px 34px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px; /* Внутренний отступ картинки от всех границ карточки */
   overflow: hidden;
-  cursor: pointer;
 }
 
 .product-photo {
-  width: 100%;
-  height: 100%;
-  object-fit: contain; /* Вписывает часы целиком без обрезки краёв */
-  display: block;
+  max-width: 100%;
+  max-height: 150px;
+  object-fit: contain;
+  position: relative;
+  z-index: 1;
 }
 
 .sku-badge {
   position: absolute;
   top: 10px;
   left: 10px;
-  background-color: rgba(15, 23, 42, 0.8);
+  z-index: 3;
+  background-color: rgba(15, 23, 42, 0.85);
   color: #f8fafc;
   font-size: 11px;
   font-weight: 600;
   padding: 3px 8px;
   border-radius: 7px;
+  white-space: nowrap;
 }
 
 .category-tag {
@@ -385,6 +496,7 @@ const getItemQtyInCart = (cartItems, productId) => {
   bottom: 8px;
   left: 10px;
   right: 10px;
+  z-index: 3;
   width: fit-content;
   max-width: calc(100% - 20px);
   white-space: nowrap;
@@ -397,6 +509,7 @@ const getItemQtyInCart = (cartItems, productId) => {
   padding: 3px 8px;
   border-radius: 6px;
 }
+
 
 .placeholder-center {
   display: flex;
@@ -454,6 +567,25 @@ const getItemQtyInCart = (cartItems, productId) => {
   flex-direction: column;
   gap: 3px;
 }
+
+.price-retail,
+.price-wholesale {
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.2;
+}
+
+.price-wholesale {
+  color: #0284c7;
+}
+
+.price-retail-sub {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
 
 .main-price-row {
   display: flex;
@@ -653,22 +785,28 @@ const getItemQtyInCart = (cartItems, productId) => {
   }
 
   .image-placeholder {
-    height: 150px;
-    padding: 8px;
+    height: 168px;
+    padding: 32px 10px 28px;
+  }
+
+  .product-photo {
+    max-height: 112px;
   }
 
   .sku-badge {
-    top: 8px;
-    left: 8px;
-    font-size: 10px;
+    top: 7px;
+    left: 7px;
+    font-size: 9.5px;
     padding: 2px 6px;
+    border-radius: 6px;
   }
 
   .category-tag {
     bottom: 6px;
-    left: 8px;
-    right: 8px;
-    font-size: 10px;
+    left: 7px;
+    right: 7px;
+    max-width: calc(100% - 14px);
+    font-size: 9.5px;
     padding: 2px 6px;
   }
 
@@ -729,8 +867,145 @@ const getItemQtyInCart = (cartItems, productId) => {
     width: 15px;
     height: 15px;
   }
+
+    .catalog-qty-control {
+    height: 36px;
+    border-radius: 10px;
+    grid-template-columns: 36px 1fr 36px;
+  }
+
+  .cat-qty-btn {
+    font-size: 16px;
+  }
+
+  .cat-qty-input {
+    font-size: 13px;
+  }
+
+  .price-retail,
+  .price-wholesale {
+    font-size: 16px;
+  }
+
+  .price-retail-sub {
+    font-size: 11px;
+  }
+
 }
 
+/* Компактный счётчик количества на карточке в каталоге */
+.catalog-qty-control {
+  margin-top: 6px;
+  height: 42px;
+  width: 100%;
+  border-radius: 12px;
+  background-color: #0f172a;
+  color: #A3D2F9;
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  align-items: center;
+  overflow: hidden;
+  border: 1.5px solid #0f172a;
+}
+
+.cat-qty-btn {
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: #A3D2F9;
+  font-size: 19px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.cat-qty-btn:hover {
+  background-color: #A3D2F9;
+  color: #0f172a;
+}
+
+.cat-qty-btn:active {
+  transform: scale(0.95);
+}
+
+.cat-qty-input {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: #ffffff;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 800;
+  outline: none;
+}
+
+/* Убираем стандартные стрелки у input type="number" */
+.cat-qty-input::-webkit-outer-spin-button,
+.cat-qty-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.cat-qty-input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+.wholesale-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn-download-price {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1.5px solid #0284c7;
+  background-color: #ffffff;
+  color: #0284c7;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.18s ease;
+}
+
+.btn-download-price:hover {
+  background-color: #0284c7;
+  color: #ffffff;
+}
+
+/* Приглушённый вид карточки при нулевом остатке */
+.product-card.out-of-stock {
+  opacity: 0.62;
+  background-color: #f8fafc;
+}
+
+.product-card.out-of-stock:hover {
+  opacity: 0.85;
+}
+
+.product-card.out-of-stock img {
+  filter: grayscale(70%);
+}
+
+
+.btn-add-cart:disabled {
+  background-color: #e2e8f0;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+.btn-add-cart:disabled:hover {
+  background-color: #e2e8f0;
+  transform: none;
+}
 
 
 </style>

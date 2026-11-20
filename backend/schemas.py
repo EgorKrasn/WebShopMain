@@ -1,16 +1,16 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional, List
 
 
 class RegisterRequest(BaseModel):
     role: str = "retail"
     email: EmailStr
-    password: str
-    full_name: str
-    phone: Optional[str] = None
-    unp: Optional[str] = None
-    company_name: Optional[str] = None
-    legal_address: Optional[str] = None
+    password: str = Field(..., min_length=8, max_length=128)
+    full_name: str = Field(..., min_length=2, max_length=120)
+    phone: Optional[str] = Field(None, max_length=30)
+    unp: Optional[str] = Field(None, max_length=20)
+    company_name: Optional[str] = Field(None, max_length=200)
+    legal_address: Optional[str] = Field(None, max_length=300)
 
     @field_validator("unp")
     @classmethod
@@ -23,32 +23,32 @@ class RegisterRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=1, max_length=128)
 
 
 class OrderItemSchema(BaseModel):
-    product_id: int
-    sku: str
-    name: str
-    quantity: int
-    unit_price: float
+    product_id: int = Field(..., gt=0)
+    sku: str = Field(..., max_length=50)
+    name: str = Field(..., max_length=250)
+    quantity: int = Field(..., ge=1, le=10000)  # Строго >= 1 шт.!
+    unit_price: float = Field(..., ge=0)
 
 
 class RecipientSchema(BaseModel):
-    full_name: str
-    phone: str
+    full_name: str = Field(..., min_length=2, max_length=150)
+    phone: str = Field(..., min_length=5, max_length=30)
 
 
 class DeliverySchema(BaseModel):
-    method: str
-    city: Optional[str] = None
-    office: Optional[str] = None
-    address: Optional[str] = None
+    method: str = Field(..., pattern="^(europost|pickup|manager)$")
+    city: Optional[str] = Field(None, max_length=100)
+    office: Optional[str] = Field(None, max_length=200)
+    address: Optional[str] = Field(None, max_length=300)
 
 
 class LegalEntitySchema(BaseModel):
-    company_name: Optional[str] = None
-    unp: Optional[str] = None
+    company_name: Optional[str] = Field(None, max_length=200)
+    unp: Optional[str] = Field(None, max_length=20)
 
 
 class OrderCreateRequest(BaseModel):
@@ -57,14 +57,15 @@ class OrderCreateRequest(BaseModel):
     recipient: RecipientSchema
     delivery: DeliverySchema
     legal_entity: Optional[LegalEntitySchema] = None
-    comment: Optional[str] = None
-    products_total_byn: float
-    items: List[OrderItemSchema]
+    comment: Optional[str] = Field(None, max_length=500)
+    products_total_byn: float = Field(..., ge=0)
+    items: List[OrderItemSchema] = Field(..., min_length=1, max_length=100)
+
 
 class SwitchRoleRequest(BaseModel):
-    role: str  # 'retail' или 'wholesale'
-    unp: Optional[str] = None
-    company_name: Optional[str] = None
+    role: str = Field(..., pattern="^(retail|wholesale)$")
+    unp: Optional[str] = Field(None, max_length=20)
+    company_name: Optional[str] = Field(None, max_length=200)
 
     @field_validator("unp")
     @classmethod

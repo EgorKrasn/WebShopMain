@@ -1,4 +1,6 @@
 <script setup>
+import { watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ref, computed, onMounted } from 'vue'
 import { api } from './services/api.js'
 import Navbar from './components/Navbar.vue'
@@ -8,6 +10,7 @@ import AuthModal from './components/AuthModal.vue'
 import CartDrawer from './components/CartDrawer.vue'
 import AccountModal from './components/AccountModal.vue'
 import Footer from './components/Footer.vue'
+import AdminPanel from './components/AdminPanel.vue'
 
 const isAuthModalOpen = ref(false)
 const authModalMode = ref('login')
@@ -20,12 +23,32 @@ const orderSuccessInfo = ref(null)
 const currentUser = ref(null)
 const userOrders = ref([])
 
+const pendingCartAction = ref(null)
+
+const route = useRoute()
+const router = useRouter()
+
+
+
+
 const userRole = computed(() => {
   return currentUser.value?.role || 'retail'
 })
 
 const searchQuery = ref('')
 const selectedCategory = ref('')
+const selectedSubcategory = ref('')
+
+const handleSelectCategory = (payload) => {
+  if (typeof payload === 'string') {
+    selectedCategory.value = payload
+    selectedSubcategory.value = ''
+  } else if (payload && typeof payload === 'object') {
+    selectedCategory.value = payload.category || ''
+    selectedSubcategory.value = payload.subcategory || ''
+  }
+}
+
 
 const loadUserOrders = async () => {
   const token = localStorage.getItem('sandrintime_token')
@@ -43,17 +66,6 @@ const loadUserOrders = async () => {
   }
 }
 
-onMounted(async () => {
-  const savedUser = localStorage.getItem('sandrintime_user')
-  if (savedUser) {
-    try {
-      currentUser.value = JSON.parse(savedUser)
-      await loadUserOrders()
-    } catch {
-      localStorage.removeItem('sandrintime_user')
-    }
-  }
-})
 
 const totalCartCount = computed(() => {
   return cartItems.value.reduce((sum, item) => sum + item.quantity, 0)
@@ -71,8 +83,10 @@ const handleAuthSuccess = async (result) => {
   currentUser.value = {
     id: updatedUser.id,
     role: updatedUser.role,
+    wholesaleStatus: updatedUser.wholesaleStatus || null,
     email: updatedUser.email,
     name: updatedUser.name,
+    companyName: updatedUser.companyName || null,
     contactName: updatedUser.contactName,
     unp: updatedUser.unp
   }
@@ -86,13 +100,35 @@ const handleAuthSuccess = async (result) => {
   }
 
   await loadUserOrders()
+
+  if (pendingCartAction.value) {
+    const { product, quantity } = pendingCartAction.value
+    pendingCartAction.value = null
+    addProductWithQuantity(product, quantity)
+  }
 }
+
+
+watch(
+  () => currentUser.value?.role,
+  (newRole) => {
+    if (newRole) {
+      
+      localStorage.setItem('sandrintime_role', newRole)
+    } else {
+      
+      localStorage.setItem('sandrintime_role', 'retail')
+    }
+  }
+)
+
 
 const handleLogout = () => {
   currentUser.value = null
   userOrders.value = []
   localStorage.removeItem('sandrintime_user')
   localStorage.removeItem('sandrintime_token')
+  localStorage.removeItem('sandrintime_cart')
 }
 
 const openAccountModal = async () => {
@@ -103,7 +139,9 @@ const openAccountModal = async () => {
 const resetFilters = () => {
   searchQuery.value = ''
   selectedCategory.value = ''
+  selectedSubcategory.value = ''
 }
+
 
 const handleAddToCart = (product) => {
   addProductWithQuantity(product, 1)
@@ -114,6 +152,12 @@ const handleAddFromModal = ({ product, quantity }) => {
 }
 
 const addProductWithQuantity = (product, qtyToAdd) => {
+  if (!currentUser.value) {
+    pendingCartAction.value = { product, quantity: qtyToAdd }
+    openAuth('login')
+    return
+  }
+
   const existing = cartItems.value.find((item) => item.id === product.id)
   if (existing) {
     existing.quantity += qtyToAdd
@@ -126,10 +170,13 @@ const addProductWithQuantity = (product, qtyToAdd) => {
       image: product.image || null,
       retailPrice: product.retailPrice,
       wholesalePrice: product.wholesalePrice,
+      minWholesaleQty: product.minWholesaleQty || 1,
       quantity: qtyToAdd
     })
   }
 }
+
+
 
 const handleRepeatOrder = (itemsToRepeat) => {
   itemsToRepeat.forEach((item) => {
@@ -162,9 +209,25 @@ const handleUpdateQty = ({ id, delta }) => {
   }
 }
 
+const handleSetQty = ({ id, quantity }) => {
+  if (quantity <= 0) {
+    handleRemoveItem(id)
+    return
+  }
+  const target = cartItems.value.find((item) => item.id === id)
+  if (target) {
+    target.quantity = quantity
+  }
+}
+
 const handleRemoveItem = (id) => {
   cartItems.value = cartItems.value.filter((i) => i.id !== id)
 }
+
+const handleClearCart = () => {
+  cartItems.value = []
+}
+
 
 const handleCheckout = async (orderPayload) => {
   const isEuropost = orderPayload.delivery?.method === 'europost'
@@ -193,58 +256,196 @@ const handleCheckout = async (orderPayload) => {
     alert(`Не удалось отправить заявку на сервер: ${err.message}`)
   }
 }
+
+const allProducts = ref([])
+
+
+// 1. Открытие карточки товара (меняет URL на /product/ST-1111)
+const openProductModal = (product) => {
+  if (!product) return
+  selectedProduct.value = product
+  if (route.params.sku !== product.sku) {
+    router.push({ name: 'product', params: { sku: product.sku } })
+  }
+}
+
+// 2. Закрытие карточки товара (возвращает URL на /)
+const closeProductModal = () => {
+  selectedProduct.value = null
+  if (route.name === 'product') {
+    router.push({ name: 'home' })
+  }
+}
+
+// 3. Переключение цвета внутри модального окна (обновляет URL на артикул нового цвета)
+const handleSelectVariant = (variantId) => {
+  const target = allProducts.value.find((item) => item.id === variantId)
+  if (target) {
+    openProductModal(target)
+  }
+}
+
+// 4. Автоматическое открытие карточки, если зашли по прямой ссылке /product/ST-1111
+// или нажали кнопку «Назад / Вперёд» в браузере
+watch(
+  [() => route.params.sku, allProducts],
+  ([sku, productsList]) => {
+    if (!sku) {
+      selectedProduct.value = null
+      return
+    }
+    if (Array.isArray(productsList) && productsList.length > 0) {
+      const found = productsList.find(
+        (p) => p.sku.toLowerCase() === String(sku).toLowerCase()
+      )
+      selectedProduct.value = found || null
+    }
+  },
+  { immediate: true }
+)
+
+onMounted(async () => {
+  // 0. Загружаем актуальные категории для меню
+  await loadCategories()
+
+  // 1. Восстанавливаем корзину из localStorage
+  const savedCart = localStorage.getItem('sandrintime_cart')
+  if (savedCart) {
+    try {
+      const parsedCart = JSON.parse(savedCart)
+      if (Array.isArray(parsedCart)) {
+        cartItems.value = parsedCart
+      }
+    } catch {
+      localStorage.removeItem('sandrintime_cart')
+    }
+  }
+
+  // 2. Восстанавливаем пользователя
+  const savedUser = localStorage.getItem('sandrintime_user')
+  if (savedUser) {
+    try {
+      currentUser.value = JSON.parse(savedUser)
+      await loadUserOrders()
+    } catch {
+      localStorage.removeItem('sandrintime_user')
+    }
+  }
+})
+
+
+watch(
+  cartItems,
+  (newCart) => {
+    localStorage.setItem('sandrintime_cart', JSON.stringify(newCart))
+  },
+  { deep: true }
+)
+
+const isAdmin = computed(() => currentUser.value?.role === 'admin')
+const isAdminPage = computed(() => route.name === 'admin')
+
+const openAdminPanel = () => {
+  if (isAdmin.value) {
+    router.push({ name: 'admin' })
+  }
+}
+
+const closeAdminPanel = () => {
+  router.push({ name: 'home' })
+}
+watch([isAdminPage, currentUser], ([inAdmin]) => { if (inAdmin && !isAdmin.value) router.replace({ name: 'home' }) }, { immediate: true })
+
+const categories = ref([])
+
+const loadCategories = async () => {
+  try {
+    const data = await api.getCategories()
+    if (Array.isArray(data)) {
+      categories.value = data
+    }
+  } catch (err) {
+    console.warn('Не удалось загрузить категории:', err.message)
+  }
+}
+
+
 </script>
+
+
+
 
 <template>
   <div class="app-layout">
+
+    <button
+      v-if="isAdmin"
+      type="button"
+      class="btn-admin-nav"
+      @click="isAdminPage ? closeAdminPanel() : openAdminPanel()"
+    >
+      {{ isAdminPage ? '← Вернуться в магазин' : '⚙️ Админ-панель' }}
+    </button>
+
     <Navbar 
       :key="'nav-' + (currentUser?.role || 'guest')"
       :cart-count="totalCartCount"
       :current-user="currentUser"
+      :categories="categories"
       @open-auth="openAuth" 
       @open-account="openAccountModal"
       @logout="handleLogout"
       @open-cart="isCartOpen = true"
       @update-search="searchQuery = $event"
-      @select-category="selectedCategory = $event"
+      @select-category="handleSelectCategory"
     />
 
-    <main class="main-content">
-      <ProductCatalog 
-        :user-role="userRole" 
-        :cart-items="cartItems"
-        :search-query="searchQuery"
-        :selected-category="selectedCategory"
-        @add-to-cart="handleAddToCart"
-        @reset-filters="resetFilters"
-        @select-product="selectedProduct = $event"
-      />
-    </main>
 
-    <ProductModal
-      :product="selectedProduct"
-      :user-role="userRole"
-      :cart-items="cartItems"
-      @close="selectedProduct = null"
-      @add-to-cart="handleAddFromModal"
-    />
+
+
+
+
 
     <AuthModal 
       :is-open="isAuthModalOpen" 
       :initial-mode="authModalMode"
-      @close="isAuthModalOpen = false"
+      @close="isAuthModalOpen = false; pendingCartAction = null"
       @success="handleAuthSuccess"
     />
+    
+    <main class="main-content">
+      <AdminPanel
+        v-if="isAdminPage && isAdmin"
+        @close="closeAdminPanel"
+        @categories-updated="loadCategories"
+      />
 
-    <CartDrawer 
-      :is-open="isCartOpen"
-      :items="cartItems"
+
+      <ProductCatalog 
+        v-else
+        :user-role="userRole"
+        :cart-items="cartItems"
+        :search-query="searchQuery"
+        :selected-category="selectedCategory"
+        :selected-subcategory="selectedSubcategory"
+        @products-loaded="allProducts = $event"
+        @select-product="openProductModal"
+        @add-to-cart="handleAddToCart"
+        @update-qty="handleUpdateQty"
+        @set-qty="handleSetQty"
+        @reset-filters="resetFilters"
+      />
+
+    </main>
+
+    <!-- Модальное окно подробного просмотра товара -->
+    <ProductModal
+      :product="selectedProduct"
       :user-role="userRole"
-      :current-user="currentUser"
-      @close="isCartOpen = false"
-      @update-qty="handleUpdateQty"
-      @remove-item="handleRemoveItem"
-      @checkout="handleCheckout"
+      :cart-items="cartItems"
+      @select-variant="handleSelectVariant"
+      @close="closeProductModal"
+      @add-to-cart="handleAddFromModal"
     />
 
     <AccountModal
@@ -257,6 +458,26 @@ const handleCheckout = async (orderPayload) => {
       @user-updated="handleAuthSuccess"
     />
 
+    <CartDrawer 
+      :is-open="isCartOpen"
+      :items="cartItems"
+      :user-role="userRole"
+      :current-user="currentUser"
+      @close="isCartOpen = false"
+      @update-qty="handleUpdateQty"
+      @set-qty="handleSetQty"
+      @remove-item="handleRemoveItem"
+      @clear-cart="handleClearCart"
+      @checkout="handleCheckout"
+    />
+
+      <Footer 
+      @select-category="handleSelectCategory"
+      @open-auth="openAuth"
+      @open-cart="isCartOpen = true"
+    />
+
+        <!-- Всплывающее окно об успешной отправке заявки -->
     <Transition name="fade">
       <div v-if="orderSuccessInfo" class="success-backdrop" @click.self="orderSuccessInfo = null">
         <div class="success-modal" role="dialog" aria-modal="true">
@@ -270,31 +491,41 @@ const handleCheckout = async (orderPayload) => {
         </div>
       </div>
     </Transition>
-
-    <Footer 
-      @select-category="selectedCategory = $event"
-      @open-auth="openAuth"
-      @open-cart="isCartOpen = true"
-    />
   </div>
 </template>
 
+
+
+
 <style>
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  background-color: #D4EAFC;
-  color: #0f172a;
-  line-height: 1.5;
+html,
+body,
+#app {
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
   overflow-x: hidden;
 }
 
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  background: linear-gradient(135deg, #A3D2F9 0%, #D4EAFC 50%, #89C2F5 100%);
+  background-attachment: fixed;
+  color: #0f172a;
+  line-height: 1.5;
+}
+
 .app-layout {
+  width: 100%;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -303,10 +534,10 @@ body {
 .main-content {
   flex: 1;
   width: 100%;
-  padding-top: 28px;
-  padding-bottom: 48px;
+   padding-top: 28px;
 }
 
+/* Всплывающее окно после отправки заявки */
 .success-backdrop {
   position: fixed;
   inset: 0;
@@ -375,13 +606,29 @@ body {
   background-color: #7cc0f8;
 }
 
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.22s ease;
+.main-content {
+  flex: 1;
+  width: 100%;
+  padding-top: 28px;
+  padding-bottom: 48px;
 }
 
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
+.btn-admin-nav {
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1.5px solid #f59e0b;
+  background-color: #fef3c7;
+  color: #92400e;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
+
+.btn-admin-nav:hover {
+  background-color: #f59e0b;
+  color: #ffffff;
+}
+
 </style>

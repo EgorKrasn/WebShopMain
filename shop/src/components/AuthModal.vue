@@ -49,6 +49,10 @@ const form = reactive({
 })
 
 
+const isCheckingUnp = ref(false)
+const unpStatusMessage = ref('')
+const isUnpVerified = ref(false)
+
 const onUnpInput = (event) => {
   const digitsOnly = event.target.value.replace(/[^0-9]/g, '').slice(0, 9)
   form.unp = digitsOnly
@@ -63,24 +67,25 @@ const switchMode = (newMode) => {
 const handleSubmit = async () => {
   errorMessage.value = ''
 
-  if (mode.value === 'register' && accountType.value === 'wholesale') {
-    if (mode.value === 'register') {
-      if (form.password.length < 6) {
-        errorMessage.value = 'Пароль должен содержать минимум 6 символов'
-        return
-      }
-      if (form.password !== form.confirmPassword) {
-        errorMessage.value = 'Введённые пароли не совпадают'
-        return
-      }
+  if (mode.value === 'register') {
+    if (form.password.length < 6) {
+      errorMessage.value = 'Пароль должен содержать минимум 6 символов'
+      return
+    }
+    if (form.password !== form.confirmPassword) {
+      errorMessage.value = 'Введённые пароли не совпадают'
+      return
+    }
   }
+
+  if (mode.value === 'register' && accountType.value === 'wholesale') {
     const cleanUnp = form.unp.replace(/[^0-9]/g, '')
     if (cleanUnp.length !== 9) {
       errorMessage.value = 'УНП для Республики Беларусь должен состоять ровно из 9 цифр'
       return
     }
     if (!form.companyName.trim()) {
-      errorMessage.value = 'Укажите полное наименование организации или ИП'
+      errorMessage.value = 'Укажите наименование организации или ИП'
       return
     }
   }
@@ -115,13 +120,14 @@ const handleSubmit = async () => {
       token: userData.access_token
     })
     emit('close')
-
   } catch (err) {
     errorMessage.value = err.message || 'Ошибка соединения с сервером'
   } finally {
     isLoading.value = false
   }
 }
+
+
 </script>
 
 
@@ -195,6 +201,7 @@ const handleSubmit = async () => {
           </div>
 
           <!-- Поля для Юрлица / ИП (УНП и наименование) -->
+          <!-- Поля для Юрлица / ИП (УНП и наименование) -->
           <div v-if="mode === 'register' && accountType === 'wholesale'" class="wholesale-fields">
             <div class="field-group">
               <label>УНП организации или ИП *</label>
@@ -221,8 +228,8 @@ const handleSubmit = async () => {
                 required 
               />
             </div>
-
           </div>
+
 
           <!-- Поля ФИО и телефона (при регистрации) -->
           <template v-if="mode === 'register'">
@@ -260,11 +267,11 @@ const handleSubmit = async () => {
           <button type="submit" class="submit-btn" :disabled="isLoading">
             <span v-if="isLoading">Подождите...</span>
             <span v-else-if="mode === 'login'">Войти</span>
-            <span v-else>{{ accountType === 'wholesale' ? 'Зарегистрировать юрлицо' : 'Зарегистрироваться' }}</span>
+            <span v-else>{{ accountType === 'wholesale' ? 'Отправить заявку на опт' : 'Зарегистрироваться' }}</span>
           </button>
 
           <p v-if="mode === 'register' && accountType === 'wholesale'" class="bottom-hint">
-            После проверки УНП вам откроется доступ к оптовому прайс-листу.
+            Заявка с реквизитами будет проверена менеджером, после чего для аккаунта откроются оптовые цены.
           </p>
         </form>
 
