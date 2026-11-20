@@ -1,8 +1,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { api } from '../services/api.js'
 import * as XLSX from 'xlsx'
 import { api, resolveImageUrl } from '../services/api.js'
+
 
 
 const props = defineProps({
