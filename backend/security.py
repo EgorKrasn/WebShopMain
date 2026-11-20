@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, timedelta, timezone
 import jwt
+from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -8,8 +9,16 @@ from sqlalchemy.orm import Session
 import models
 from database import get_db
 
-# Секретный ключ для подписи токенов (при выкладке на сервер задаётся через переменную окружения)
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "sandrintime_super_secret_key_2026_change_in_prod")
+load_dotenv()
+
+ENV = os.getenv("ENV", "development")
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
+
+if not SECRET_KEY:
+    if ENV == "production":
+        raise RuntimeError("КРИТИЧЕСКАЯ ОШИБКА: Не задан JWT_SECRET_KEY в .env!")
+    SECRET_KEY = "dev_only_fallback_secret_key_change_me"
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 7
 
@@ -50,3 +59,14 @@ def get_current_user_required(
             detail="Сессия истекла или вы не авторизованы. Войдите в аккаунт заново."
         )
     return user
+
+
+def get_current_admin_required(
+    current_user: models.User = Depends(get_current_user_required)
+) -> models.User:
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Доступ запрещён: требуются права администратора"
+        )
+    return current_user

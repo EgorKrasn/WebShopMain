@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 
-defineProps({
+const props = defineProps({
   cartCount: {
     type: Number,
     default: 0
@@ -9,6 +9,10 @@ defineProps({
   currentUser: {
     type: Object,
     default: null
+  },
+  categories: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -23,38 +27,8 @@ const activeCategory = ref(0)
 // Поисковый запрос
 const searchQuery = ref('')
 
-const categories = [
-  {
-    id: 1,
-    name: 'Наручные часы',
-    icon: '⌚',
-    subcategories: ['Мужские механические', 'Женские кварцевые', 'Спортивные и тактические', 'Детские часы', 'Премиум-сегмент']
-  },
-  {
-    id: 2,
-    name: 'Интерьерные и настенные',
-    icon: '🕰️',
-    subcategories: ['Большие настенные', 'Бесшумные для спальни', 'Настольные с будильником', 'Каминные и ретро', 'Офисные модели']
-  },
-  {
-    id: 3,
-    name: 'Умные часы и браслеты',
-    icon: '📱',
-    subcategories: ['Смарт-часы для спорта', 'Детские часы с GPS', 'Фитнес-браслеты', 'Зарядные устройства']
-  },
-  {
-    id: 4,
-    name: 'Ремешки и комплектующие',
-    icon: '🔗',
-    subcategories: ['Кожаные ремешки', 'Металлические браслеты', 'Силиконовые ремешки', 'Элементы питания (батарейки)', 'Инструменты для ремонта']
-  },
-  {
-    id: 5,
-    name: 'Оптовые подборки и боксы',
-    icon: '📦',
-    subcategories: ['Микс-боксы от 10 штук', 'Подарочные футляры оптом', 'Витринные стойки и подставки', 'Сезонные распродажи']
-  }
-]
+
+
 
 const toggleCatalog = () => {
   isCatalogOpen.value = !isCatalogOpen.value
@@ -77,10 +51,14 @@ const clearSearch = () => {
   emit('update-search', '')
 }
 
-const selectCategory = (categoryName) => {
-  emit('select-category', categoryName)
+const selectCategory = (categoryName, subcategoryName = '') => {
+  emit('select-category', {
+    category: categoryName,
+    subcategory: subcategoryName
+  })
   closeCatalog()
 }
+
 </script>
 
 <template>
@@ -233,17 +211,26 @@ const selectCategory = (categoryName) => {
           <h3 class="subcat-title">{{ categories[activeCategory].name }}</h3>
           <ul class="subcat-list">
             <li>
-              <a href="#catalog" class="subcat-link all-cat-link" @click.prevent="selectCategory(categories[activeCategory].name)">
+              <a
+                href="#catalog"
+                class="subcat-link all-cat-link"
+                @click.prevent="selectCategory(categories[activeCategory].name, '')"
+              >
                 Смотреть все в разделе «{{ categories[activeCategory].name }}» →
               </a>
             </li>
             <li v-for="sub in categories[activeCategory].subcategories" :key="sub">
-              <a href="#catalog" class="subcat-link" @click.prevent="selectCategory(categories[activeCategory].name)">
+              <a
+                href="#catalog"
+                class="subcat-link"
+                @click.prevent="selectCategory(categories[activeCategory].name, sub)"
+              >
                 {{ sub }}
               </a>
             </li>
           </ul>
         </div>
+
 
         <div class="drawer-mobile-auth">
           <div v-if="currentUser" class="mobile-user-card">

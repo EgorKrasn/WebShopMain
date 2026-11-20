@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, DateTime, JSON # <-- добавили JSON
+
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
@@ -8,19 +9,19 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    role = Column(String, default="retail")  # 'retail' или 'wholesale'
+    role = Column(String, default="retail", nullable=False)
+    wholesale_status = Column(String, nullable=True)
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     full_name = Column(String, nullable=False)
-    phone = Column(String, nullable=True)
-
-    # Поля для юридических лиц и ИП
-    unp = Column(String(9), nullable=True, index=True)
+    phone = Column(String, nullable=False)
+    unp = Column(String, nullable=True)
     company_name = Column(String, nullable=True)
     legal_address = Column(String, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.now)
     orders = relationship("Order", back_populates="user")
+
+
 
 
 class Product(Base):
@@ -28,19 +29,34 @@ class Product(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     sku = Column(String, unique=True, index=True, nullable=False)
+    group_id = Column(String, index=True, nullable=True)
+    color_name = Column(String, nullable=True)
     category = Column(String, index=True, nullable=False)
+    subcategory = Column(String, index=True, nullable=True)
     name = Column(String, nullable=False)
     specs = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     mechanism = Column(String, nullable=True)
     case_material = Column(String, nullable=True)
     warranty = Column(String, default="12 месяцев")
+    
+    # <-- НОВОЕ: Гибкий список характеристик для админки: [{"label": "Механизм", "value": "Кварцевый"}]
+    attributes = Column(JSON, nullable=True)
+    
     icon = Column(String, default="⌚")
     image = Column(String, nullable=True)
 
     retail_price = Column(Float, nullable=False)
     wholesale_price = Column(Float, nullable=False)
     min_wholesale_qty = Column(Integer, default=5)
+
+    retail_price = Column(Float, nullable=False)
+    wholesale_price = Column(Float, nullable=False)
+    min_wholesale_qty = Column(Integer, default=5)
+    stock = Column(Integer, default=20, nullable=False)  # <-- НОВОЕ: Остаток на складе (шт.)
+
+
+
 
 
 class Order(Base):
@@ -84,3 +100,12 @@ class OrderItem(Base):
     unit_price = Column(Float)
 
     order = relationship("Order", back_populates="items")
+
+class Category(Base):
+    __tablename__ = "categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True, nullable=False)
+    icon = Column(String, default="⌚", nullable=False)
+    subcategories = Column(JSON, default=list, nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)

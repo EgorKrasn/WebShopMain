@@ -1,5 +1,6 @@
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
+import * as XLSX from 'xlsx'
 
 const props = defineProps({
   isOpen: {
@@ -20,7 +21,8 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['close', 'update-qty', 'remove-item', 'checkout'])
+const emit = defineEmits(['close', 'update-qty', 'set-qty', 'remove-item', 'clear-cart', 'checkout'])
+
 
 const step = ref('cart')
 
@@ -44,6 +46,22 @@ const formError = ref('')
 const isWholesale = computed(() => props.userRole === 'wholesale')
 // Для юрлиц выбор Европочты отключаем — доставка обсуждается с менеджером
 const isEuropost = computed(() => !isWholesale.value && orderForm.deliveryMethod === 'europost')
+const getMinWholesaleQty = (item) => Number(item.minWholesaleQty || 1)
+
+const getMissingWholesaleQty = (item) => {
+  if (!isWholesale.value) return 0
+  const minQty = getMinWholesaleQty(item)
+  return item.quantity < minQty ? minQty - item.quantity : 0
+}
+
+const hasUnmetWholesaleMin = computed(() => {
+  if (!isWholesale.value) return false
+  return props.items.some((item) => getMissingWholesaleQty(item) > 0)
+})
+
+const fillToWholesaleMin = (item) => {
+  emit('set-qty', { id: item.id, quantity: getMinWholesaleQty(item) })
+}
 
 
 const syncUserData = () => {
@@ -100,6 +118,7 @@ const formatPrice = (value) => {
 }
 
 const goToCheckout = () => {
+  if (hasUnmetWholesaleMin.value) return
   formError.value = ''
   syncUserData()
   step.value = 'checkout'
@@ -197,6 +216,68 @@ const confirmFinalOrder = () => {
   pendingOrderPayload.value = null
   emit('checkout', submittedPayload)
 }
+
+function addToCart(product, variant) {
+  const cartKey = variant ? `${product.id}_${variant.id}` : `${product.id}`;
+  // Сохраняйте в объект корзины fields: variant_id, color_name, sku и image выбранного варианта.
+}
+
+
+const exportCartToExcel = () => {
+  if (!isWholesale.value || props.items.length === 0) return
+
+  const today = new Date().toLocaleDateString('ru-RU')
+  const fileDate = new Date().toISOString().slice(0, 10)
+
+  const sheetRows = [
+    ['ПРЕДВАРИТЕЛЬНАЯ СМЕТА ЗАКАЗА', '', '', 'Дата:', today],
+    [],
+    ['ПОСТАВЩИК:', 'ООО «Сандринтайм»', '', 'ПОКУПАТЕЛЬ:', props.currentUser?.name || '—'],
+    ['УНП поставщика:', '690876665', '', 'УНП покупателя:', props.currentUser?.unp || '—'],
+    ['Юридический адрес:', '223053, Минский р-н, Боровлянский с/с, д. Боровая, д. 7, ком. 1', '', 'Контактное лицо:', props.currentUser?.contactName || '—'],
+    ['Фактический адрес:', 'Минский р-н, пересечение Логойского тракта и МКАД, ТРЦ «Экспобел», пав. 218/219', '', 'Email:', props.currentUser?.email || '—'],
+    ['Телефоны:', '+375 (29) 651-19-83, +375 (29) 000-00-00', '', '', ''],
+    [],
+    ['№', 'Артикул', 'Наименование товара', 'Кол-во (шт.)', 'Оптовая цена (BYN)', 'Сумма (BYN)']
+  ]
+
+  props.items.forEach((item, index) => {
+    const qty = Number(item.quantity || 0)
+    const price = Number(getUnitPrice(item) || 0)
+    sheetRows.push([
+      index + 1,
+      item.sku || '',
+      item.name || '',
+      qty,
+      price,
+      Number((qty * price).toFixed(2))
+    ])
+  })
+
+  sheetRows.push([])
+  sheetRows.push(['', '', '', '', 'ИТОГО ПО СМЕТЕ (BYN):', Number(productsTotal.value.toFixed(2))])
+
+  const worksheet = XLSX.utils.aoa_to_sheet(sheetRows)
+
+  const colCount = 6
+  const colWidths = []
+  for (let c = 0; c < colCount; c++) {
+    let maxLen = 12
+    for (let r = 0; r < sheetRows.length; r++) {
+      const cellVal = sheetRows[r]?.[c]
+      if (cellVal !== undefined && cellVal !== null) {
+        maxLen = Math.max(maxLen, String(cellVal).length)
+      }
+    }
+    colWidths.push({ wch: maxLen + 4 })
+  }
+  worksheet['!cols'] = colWidths
+
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Смета заказа')
+  XLSX.writeFile(workbook, `Smeta_SandrinTime_${fileDate}.xlsx`)
+}
+
 </script>
 
 
@@ -213,8 +294,21 @@ const confirmFinalOrder = () => {
           <h2 class="cart-title">{{ step === 'cart' ? 'Корзина' : 'Оформление заявки' }}</h2>
           <span v-if="step === 'cart'" class="cart-count-pill">{{ totalCount }} шт.</span>
         </div>
-        <button type="button" class="cart-close" @click="emit('close')">✕</button>
+
+        <div class="cart-header-actions">
+          <button
+            v-if="step === 'cart' && items.length > 0"
+            type="button"
+            class="btn-clear-cart"
+            @click="emit('clear-cart')"
+            title="Удалить все товары из корзины"
+          >
+            Очистить
+          </button>
+          <button type="button" class="cart-close" @click="emit('close')">✕</button>
+        </div>
       </div>
+
 
       <div class="price-mode-banner" :class="{ wholesale: isWholesale }">
         <span v-if="isWholesale">🏢 Активен <strong>оптовый прайс</strong> (УНП) • Оплата при получении</span>
@@ -245,6 +339,13 @@ const confirmFinalOrder = () => {
                   <button type="button" class="item-remove" @click="emit('remove-item', item.id)">🗑</button>
                 </div>
                 <div class="item-bottom">
+                  <div v-if="getMissingWholesaleQty(item) > 0" class="wholesale-min-alert">
+                    <span>Для опта добавьте ещё <strong>{{ getMissingWholesaleQty(item) }} шт.</strong></span>
+                    <button type="button" class="btn-fill-min" @click="fillToWholesaleMin(item)">
+                      Добить до {{ getMinWholesaleQty(item) }} шт.
+                    </button>
+                  </div>
+
                   <div class="qty-control">
                     <button type="button" class="qty-btn" @click="emit('update-qty', { id: item.id, delta: -1 })">−</button>
                     <span class="qty-value">{{ item.quantity }}</span>
@@ -261,12 +362,35 @@ const confirmFinalOrder = () => {
           </ul>
         </div>
         <div class="cart-footer">
+          <div v-if="hasUnmetWholesaleMin" class="footer-min-warning">
+            ⚠️ Чтобы оформить оптовую заявку, наберите минимальную партию по всем позициям.
+          </div>
+
           <div class="summary-row total">
             <span>Сумма товаров:</span>
             <span class="total-amount">{{ formatPrice(productsTotal) }} BYN</span>
           </div>
-          <button type="button" class="btn-checkout" @click="goToCheckout">Перейти к оформлению →</button>
+
+          <button
+            v-if="isWholesale"
+            type="button"
+            class="btn-export-smeta"
+            @click="exportCartToExcel"
+          >
+            📊 Скачать смету (Excel)
+          </button>
+
+          <button
+            type="button"
+            class="btn-checkout"
+            :disabled="hasUnmetWholesaleMin"
+            @click="goToCheckout"
+          >
+            {{ hasUnmetWholesaleMin ? 'Не набрана мин. оптовая партия' : 'Перейти к оформлению →' }}
+          </button>
         </div>
+
+
       </div>
 
       <form v-else class="checkout-wrapper" @submit.prevent="prepareOrder">
@@ -1058,6 +1182,91 @@ const confirmFinalOrder = () => {
   font-size: 12px;
   line-height: 1.45;
   color: #334155;
+}
+
+.wholesale-min-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background-color: #fef3c7;
+  border: 1px solid #f59e0b;
+  font-size: 12px;
+  color: #78350f;
+}
+
+.btn-fill-min {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: none;
+  background-color: #0f172a;
+  color: #A3D2F9;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.footer-min-warning {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background-color: #fef3c7;
+  border: 1px solid #f59e0b;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.btn-checkout:disabled {
+  background-color: #cbd5e1;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+.cart-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-clear-cart {
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  background: rgba(239, 68, 68, 0.14);
+  color: #fca5a5;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-clear-cart:hover {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #ffffff;
+}
+
+.btn-export-smeta {
+  height: 40px;
+  width: 100%;
+  border-radius: 12px;
+  border: 1.5px solid #16a34a;
+  background-color: #dcfce7;
+  color: #15803d;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-export-smeta:hover {
+  background-color: #16a34a;
+  color: #ffffff;
 }
 
 

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, reactive, watch } from 'vue'
+import * as XLSX from 'xlsx'
 import { api } from '../services/api.js'
 
 const props = defineProps({
@@ -19,7 +20,6 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'logout', 'repeat-order', 'user-updated'])
 
-// Локальная реактивная копия профиля для мгновенной перерисовки внутри окна
 const localUser = ref(props.currentUser ? { ...props.currentUser } : null)
 
 watch(
@@ -42,7 +42,7 @@ const upgradeForm = reactive({
 const openUpgradeForm = () => {
   switchError.value = ''
   upgradeForm.unp = localUser.value?.unp || ''
-  upgradeForm.companyName = localUser.value?.role === 'wholesale' ? localUser.value.name : ''
+  upgradeForm.companyName = localUser.value?.companyName || (localUser.value?.role === 'wholesale' ? localUser.value.name : '')
   isUpgradeFormOpen.value = true
 }
 
@@ -70,13 +70,21 @@ const submitUpgradeToWholesale = async () => {
       unp: upgradeForm.unp,
       company_name: upgradeForm.companyName.trim()
     })
-    if (result?.user) {
-      localUser.value = { ...result.user }
-    }
-    emit('user-updated', result)
+
+    const updatedUser = result?.user
+      ? result.user
+      : {
+          ...localUser.value,
+          wholesaleStatus: 'pending',
+          unp: upgradeForm.unp,
+          companyName: upgradeForm.companyName.trim()
+        }
+
+    localUser.value = { ...updatedUser }
+    emit('user-updated', { ...result, user: updatedUser })
     isUpgradeFormOpen.value = false
   } catch (err) {
-    switchError.value = err.message || 'Не удалось сменить статус'
+    switchError.value = err.message || 'Не удалось отправить заявку'
   } finally {
     isSwitching.value = false
   }
@@ -87,10 +95,17 @@ const switchToRetail = async () => {
   isSwitching.value = true
   try {
     const result = await api.switchRole({ role: 'retail' })
-    if (result?.user) {
-      localUser.value = { ...result.user }
-    }
-    emit('user-updated', result)
+
+    const updatedUser = result?.user
+      ? result.user
+      : {
+          ...localUser.value,
+          role: 'retail',
+          name: localUser.value?.contactName || localUser.value?.name
+        }
+
+    localUser.value = { ...updatedUser }
+    emit('user-updated', { ...result, user: updatedUser })
     isUpgradeFormOpen.value = false
   } catch (err) {
     switchError.value = err.message || 'Не удалось переключить на физлицо'
@@ -118,6 +133,58 @@ const handleLogoutClick = () => {
   isUpgradeFormOpen.value = false
   emit('logout')
   emit('close')
+}
+
+const exportOrderToExcel = (order) => {
+  if (!localUser.value || localUser.value.role !== 'wholesale') return
+
+  const sheetRows = [
+    ['Заявка №', order.number, '', 'Дата:', order.createdAt],
+    [],
+    ['ПОСТАВЩИК:', 'ООО «Сандринтайм»', '', 'ПОКУПАТЕЛЬ:', localUser.value.name],
+    ['УНП поставщика:', '690876665', '', 'УНП покупателя:', localUser.value.unp || '—'],
+    ['Юридический адрес:', '223053, Минский р-н, Боровлянский с/с, д. Боровая, д. 7, ком. 1', '', 'Контактное лицо:', order.recipient?.full_name || localUser.value.contactName || '—'],
+    ['Фактический адрес:', 'Минский р-н, пересечение Логойского тракта и МКАД, ТРЦ «Экспобел», пав. 218/219', '', 'Телефон покупателя:', order.recipient?.phone || '—'],
+    ['Телефоны:', '+375 (29) 651-19-83, +375 (29) 000-00-00', '', '', ''],
+    [],
+    ['№', 'Артикул', 'Наименование товара', 'Кол-во (шт.)', 'Цена за шт. (BYN)', 'Сумма (BYN)']
+  ]
+
+  order.items.forEach((item, index) => {
+    const qty = Number(item.quantity || 0)
+    const price = Number(item.unit_price || 0)
+    sheetRows.push([
+      index + 1,
+      item.sku || '',
+      item.name || '',
+      qty,
+      price,
+      Number((qty * price).toFixed(2))
+    ])
+  })
+
+  sheetRows.push([])
+  sheetRows.push(['', '', '', '', 'ИТОГО (BYN):', Number(order.products_total_byn || 0)])
+
+  const worksheet = XLSX.utils.aoa_to_sheet(sheetRows)
+
+  const colCount = 6
+  const colWidths = []
+  for (let c = 0; c < colCount; c++) {
+    let maxLen = 12
+    for (let r = 0; r < sheetRows.length; r++) {
+      const cellVal = sheetRows[r]?.[c]
+      if (cellVal !== undefined && cellVal !== null) {
+        maxLen = Math.max(maxLen, String(cellVal).length)
+      }
+    }
+    colWidths.push({ wch: maxLen + 4 })
+  }
+  worksheet['!cols'] = colWidths
+
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, `Заявка ${order.number}`)
+  XLSX.writeFile(workbook, `Order_${order.number}_SandrinTime.xlsx`)
 }
 </script>
 
@@ -148,6 +215,12 @@ const handleLogoutClick = () => {
                 <span v-if="localUser.role === 'wholesale'" class="role-pill wholesale">
                   Опт • УНП {{ localUser.unp }}
                 </span>
+                <span v-else-if="localUser.wholesaleStatus === 'pending'" class="role-pill pending">
+                  ⏳ Заявка на опт на проверке ({{ localUser.companyName }}, УНП {{ localUser.unp }})
+                </span>
+                <span v-else-if="localUser.wholesaleStatus === 'rejected'" class="role-pill rejected">
+                  ❌ Заявка на опт отклонена
+                </span>
                 <span v-else class="role-pill">Розничный покупатель</span>
               </div>
               <span class="profile-email">{{ localUser.email }}</span>
@@ -155,16 +228,16 @@ const handleLogoutClick = () => {
 
             <div class="profile-actions">
               <button 
-                v-if="localUser.role === 'retail'" 
+                v-if="localUser.role === 'retail' && localUser.wholesaleStatus !== 'pending'" 
                 type="button" 
                 class="btn-switch-role wholesale"
                 @click="openUpgradeForm"
               >
-                🏢 Перейти на юрлицо (опт)
+                🏢 {{ localUser.wholesaleStatus === 'rejected' ? 'Подать заявку повторно' : 'Перейти на юрлицо (опт)' }}
               </button>
 
               <button 
-                v-else 
+                v-else-if="localUser.role === 'wholesale'" 
                 type="button" 
                 class="btn-switch-role"
                 :disabled="isSwitching"
@@ -180,6 +253,7 @@ const handleLogoutClick = () => {
           </div>
 
 
+
           <form v-if="isUpgradeFormOpen" class="upgrade-form" @submit.prevent="submitUpgradeToWholesale">
             <div class="upgrade-header">
               <strong>Подключение оптового аккаунта (Юрлицо / ИП)</strong>
@@ -188,6 +262,15 @@ const handleLogoutClick = () => {
             <div class="upgrade-fields">
               <div class="upgrade-field">
                 <label>УНП (9 цифр) *</label>
+                <div v-if="unpStatusMessage" class="unp-check-status" :class="{ verified: isUnpVerified }">
+                  {{ unpStatusMessage }}
+                </div>
+            <div v-if="switchError" class="switch-error">{{ switchError }}</div>
+            <button type="submit" class="btn-confirm-upgrade" :disabled="isSwitching">
+              {{ isSwitching ? 'Отправка...' : 'Отправить заявку менеджеру' }}
+            </button>
+
+
                 <input 
                   :value="upgradeForm.unp" 
                   @input="onUnpInput" 
@@ -245,13 +328,23 @@ const handleLogoutClick = () => {
               <div class="order-delivery-info">
                 <template v-if="order.delivery.method === 'manager'">
                   <div class="delivery-line">
+                    <strong>🤝 Доставка и оплата:</strong> Согласование с менеджером (оптовый заказ)
+                  </div>
+                  <div class="delivery-line">
+                    <strong>Контактное лицо:</strong> {{ order.recipient.full_name }} ({{ order.recipient.phone }})
+                  </div>
+                </template>
+
+
+                <template v-else-if="order.delivery.method === 'europost'">
+                  <div class="delivery-line">
                     <strong>📦 Европочта:</strong> г. {{ order.delivery.city }}, {{ order.delivery.office }}
                   </div>
                   <div class="delivery-line">
                     <strong>Получатель:</strong> {{ order.recipient.full_name }} ({{ order.recipient.phone }})
                   </div>
-                  <div v-if="order.trackCode" class="track-box">
-                    Трек-номер Европочты: <strong>{{ order.trackCode }}</strong>
+                  <div v-if="order.delivery.track_code" class="delivery-line track-box">
+                    <strong>Трек-номер для отслеживания:</strong> {{ order.delivery.track_code }}
                   </div>
                 </template>
 
@@ -264,6 +357,7 @@ const handleLogoutClick = () => {
                   </div>
                 </template>
               </div>
+
 
               <ul class="order-products">
                 <li v-for="item in order.items" :key="item.product_id" class="order-product-row">
@@ -284,14 +378,28 @@ const handleLogoutClick = () => {
                   </span>
                 </div>
 
-                <button 
-                  type="button" 
-                  class="btn-repeat" 
-                  @click="emit('repeat-order', order.items); emit('close')"
-                >
-                  ↻ Повторить заявку
-                </button>
+                <div class="order-foot-actions">
+                  <button
+                    v-if="localUser?.role === 'wholesale'"
+                    type="button"
+                    class="btn-excel-order"
+                    @click="exportOrderToExcel(order)"
+                    title="Выгрузить состав заявки в файл Excel (.xlsx)"
+                  >
+                    📊 В Excel
+                  </button>
+
+                  <button 
+                    type="button" 
+                    class="btn-repeat" 
+                    @click="emit('repeat-order', order.items); emit('close')"
+                  >
+                    ↻ Повторить заявку
+                  </button>
+                </div>
+
               </div>
+
             </article>
           </div>
         </div>
@@ -812,6 +920,60 @@ gap: 2px;
   .upgrade-fields {
     grid-template-columns: 1fr;
   }
+}
+
+.order-foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-invoice {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1px solid #0284c7;
+  background-color: #e0f2fe;
+  color: #0369a1;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-invoice:hover {
+  background-color: #0284c7;
+  color: #ffffff;
+}
+
+.btn-excel-order {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1px solid #16a34a;
+  background-color: #dcfce7;
+  color: #15803d;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-excel-order:hover {
+  background-color: #16a34a;
+  color: #ffffff;
+}
+
+.role-pill.pending {
+  background-color: #fef3c7;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+}
+
+.role-pill.rejected {
+  background-color: #fee2e2;
+  color: #b91c1c;
 }
 
 

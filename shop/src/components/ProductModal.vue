@@ -13,10 +13,21 @@ const props = defineProps({
   cartItems: {
     type: Array,
     default: () => []
+  },
+  // Заготовка под глобальные настройки названий полей из админки в будущем
+  fieldLabels: {
+    type: Object,
+    default: () => ({
+      specs: 'Кратко',
+      mechanism: 'Механизм',
+      caseMaterial: 'Материал',
+      warranty: 'Гарантия',
+      minWholesaleQty: 'Мин. оптовая партия'
+    })
   }
 })
 
-const emit = defineEmits(['close', 'add-to-cart'])
+const emit = defineEmits(['close', 'add-to-cart', 'select-variant'])
 
 const quantity = ref(1)
 
@@ -46,20 +57,51 @@ const qtyInCart = computed(() => {
   return found ? found.quantity : 0
 })
 
+const hasColorVariants = computed(() => {
+  return Array.isArray(props.product?.variants) && props.product.variants.length > 1
+})
+
+// Динамический список характеристик: берёт массив из БД (от админа) или собирает из базовых полей
+const displayAttributes = computed(() => {
+  if (!props.product) return []
+
+  if (Array.isArray(props.product.attributes) && props.product.attributes.length > 0) {
+    return props.product.attributes.filter((attr) => attr.label && attr.value)
+  }
+
+  const list = []
+  if (props.product.specs) {
+    list.push({ label: props.fieldLabels.specs, value: props.product.specs })
+  }
+  if (props.product.mechanism) {
+    list.push({ label: props.fieldLabels.mechanism, value: props.product.mechanism })
+  }
+  if (props.product.caseMaterial) {
+    list.push({ label: props.fieldLabels.caseMaterial, value: props.product.caseMaterial })
+  }
+  if (props.product.warranty) {
+    list.push({ label: props.fieldLabels.warranty, value: props.product.warranty })
+  }
+  return list
+})
+
 const decreaseQty = () => {
   if (quantity.value >= 2) {
     quantity.value -= 1
   }
 }
 
-const increaseQty = () => {
-  quantity.value += 1
-}
+
 
 const setWholesaleMinQty = () => {
   if (props.product?.minWholesaleQty) {
     quantity.value = props.product.minWholesaleQty
   }
+}
+
+const handleVariantClick = (variantId) => {
+  if (variantId === props.product?.id) return
+  emit('select-variant', variantId)
 }
 
 const handleAdd = () => {
@@ -71,10 +113,38 @@ const handleAdd = () => {
 const formatPrice = (value) => {
   return Number(value).toFixed(2).replace('.', ',')
 }
+
+const linkCopied = ref(false)
+
+const copyProductLink = async () => {
+  try {
+    await navigator.clipboard.writeText(window.location.href)
+    linkCopied.value = true
+    setTimeout(() => {
+      linkCopied.value = false
+    }, 2000)
+  } catch (err) {
+    console.warn('Не удалось скопировать ссылку:', err)
+  }
+}
+
+const availableStock = computed(() => {
+  return Number(props.product?.stock ?? 0)
+})
+
+const isOutOfStock = computed(() => {
+  return availableStock.value <= 0
+})
+
+// Обновите increaseQty, чтобы нельзя было выбрать больше, чем есть на складе:
+const increaseQty = () => {
+  if (quantity.value < availableStock.value) {
+    quantity.value += 1
+  }
+}
+
+
 </script>
-
-
-
 
 <template>
   <Transition name="modal-fade">
@@ -86,6 +156,15 @@ const formatPrice = (value) => {
           <div class="top-badges">
             <span class="sku-pill">Арт. {{ product.sku }}</span>
             <span class="cat-pill">{{ product.category }}</span>
+            <button
+              type="button"
+              class="copy-link-btn"
+              :class="{ copied: linkCopied }"
+              @click="copyProductLink"
+              title="Скопировать прямую ссылку на этот цвет"
+            >
+              {{ linkCopied ? '✓ Ссылка скопирована' : '🔗 Поделиться' }}
+            </button>
           </div>
           <button type="button" class="close-btn" @click="emit('close')" aria-label="Закрыть окно">
             ✕
@@ -93,7 +172,7 @@ const formatPrice = (value) => {
         </div>
 
         <div class="modal-content">
-          <!-- Левая колонка: Крупное фото или заглушка -->
+          <!-- Левая колонка: Крупное фото или заглушка + остаток на складе -->
           <div class="media-column">
             <div class="large-image-box">
               <img 
@@ -109,42 +188,78 @@ const formatPrice = (value) => {
               </div>
             </div>
 
-            <div class="stock-status">
+            <div
+              class="stock-status"
+              :class="{
+                'out-of-stock': isOutOfStock,
+                'low-stock': availableStock > 0 && availableStock < 10
+              }"
+            >
               <span class="status-dot"></span>
-              <span>В наличии на складе в Минске • Доставка по РБ</span>
+              <span v-if="isOutOfStock">Нет в наличии (под заказ)</span>
+              <span v-else>В наличии на складе: <strong>{{ availableStock }} шт.</strong> • Доставка по РБ</span>
             </div>
           </div>
 
-          <!-- Правая колонка: Описание, характеристики, цена и количество -->
+          <!-- Правая колонка: Описание, цвета, характеристики, цена и количество -->
           <div class="info-column">
             <h2 class="product-title">{{ product.name }}</h2>
+
+            <!-- Блок выбора цвета (как на Wildberries) -->
+            <div v-if="hasColorVariants" class="color-variants-block">
+              <div class="color-label-row">
+                <span class="color-label">Цвет:</span>
+                <strong class="color-current-name">{{ product.colorName || 'Выбранный вариант' }}</strong>
+              </div>
+
+              <div class="color-swatches-grid">
+                <button
+                  v-for="variant in product.variants"
+                  :key="variant.id"
+                  type="button"
+                  class="color-swatch-card"
+                  :class="{
+                    active: variant.id === product.id,
+                    'out-of-stock': variant.stock !== undefined && variant.stock <= 0
+                  }"
+                  :title="(variant.stock !== undefined && variant.stock <= 0) ? `${variant.colorName} (нет в наличии)` : variant.colorName"
+                  @click="handleVariantClick(variant.id)"
+                >
+
+
+                  <img
+                    v-if="variant.image"
+                    :src="variant.image"
+                    :alt="variant.colorName"
+                    class="swatch-img"
+                  />
+                  <div v-else class="swatch-placeholder">
+                    <span class="swatch-icon">{{ variant.icon || '⌚' }}</span>
+                    <span class="swatch-fallback-text">{{ variant.colorName }}</span>
+                  </div>
+                </button>
+              </div>
+            </div>
 
             <p class="product-description">
               {{ product.description || 'Надёжная модель из каталога «СандринТайм». Поставляется в фирменной упаковке с официальной гарантией и полным комплектом документов для розничных и оптовых покупателей.' }}
             </p>
 
-            <!-- Таблица характеристик -->
+            <!-- Таблица характеристик (динамическая) -->
             <div class="specs-block">
               <h3 class="specs-heading">Характеристики</h3>
               <dl class="specs-list">
-                <div class="spec-row">
-                  <dt>Кратко:</dt>
-                  <dd>{{ product.specs }}</dd>
+                <div
+                  v-for="(attr, index) in displayAttributes"
+                  :key="index"
+                  class="spec-row"
+                >
+                  <dt>{{ attr.label }}:</dt>
+                  <dd>{{ attr.value }}</dd>
                 </div>
-                <div v-if="product.mechanism" class="spec-row">
-                  <dt>Механизм:</dt>
-                  <dd>{{ product.mechanism }}</dd>
-                </div>
-                <div v-if="product.caseMaterial" class="spec-row">
-                  <dt>Материал:</dt>
-                  <dd>{{ product.caseMaterial }}</dd>
-                </div>
-                <div v-if="product.warranty" class="spec-row">
-                  <dt>Гарантия:</dt>
-                  <dd>{{ product.warranty }}</dd>
-                </div>
-                <div class="spec-row">
-                  <dt>Мин. оптовая партия:</dt>
+
+                <div v-if="isWholesale" class="spec-row">
+                  <dt>{{ fieldLabels.minWholesaleQty }}:</dt>
                   <dd>от {{ product.minWholesaleQty }} шт.</dd>
                 </div>
               </dl>
@@ -167,9 +282,6 @@ const formatPrice = (value) => {
                   <span class="current-price">{{ formatPrice(product.retailPrice) }} BYN</span>
                   <span class="role-tag">Розничная цена / шт.</span>
                 </div>
-                <div class="price-sub-line">
-                  Опт (от {{ product.minWholesaleQty }} шт. для юрлиц): <strong>{{ formatPrice(product.wholesalePrice) }} BYN</strong>
-                </div>
               </template>
             </div>
 
@@ -182,6 +294,7 @@ const formatPrice = (value) => {
                     v-model.number="quantity" 
                     type="number" 
                     min="1" 
+                    :max="availableStock || 1"
                     class="qty-input"
                     aria-label="Количество"
                   />
@@ -189,6 +302,7 @@ const formatPrice = (value) => {
                 </div>
 
                 <button 
+                  v-if="isWholesale"
                   type="button" 
                   class="btn-min-lot"
                   @click="setWholesaleMinQty"
@@ -198,13 +312,19 @@ const formatPrice = (value) => {
                 </button>
               </div>
 
-              <button type="button" class="btn-add-confirm" @click="handleAdd">
+              <button
+                type="button"
+                class="btn-add-confirm"
+                :disabled="isOutOfStock"
+                @click="handleAdd"
+              >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                   <circle cx="9" cy="21" r="1"></circle>
                   <circle cx="20" cy="21" r="1"></circle>
                   <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
                 </svg>
-                <span>Добавить в корзину • {{ formatPrice(totalPrice) }} BYN</span>
+                <span v-if="isOutOfStock">Нет в наличии</span>
+                <span v-else>Добавить в корзину • {{ formatPrice(totalPrice) }} BYN</span>
               </button>
 
               <p v-if="qtyInCart > 0" class="already-in-cart">
@@ -219,6 +339,7 @@ const formatPrice = (value) => {
     </div>
   </Transition>
 </template>
+
 
 <style scoped>
 .modal-backdrop {
@@ -263,111 +384,99 @@ const formatPrice = (value) => {
 }
 
 .sku-pill {
-  background-color: #1e293b;
-  color: #A3D2F9;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 8px;
+background-color: #1e293b;
+color: #A3D2F9;
+font-size: 12px;
+font-weight: 700;
+padding: 4px 10px;
+border-radius: 8px;
 }
-
 .cat-pill {
-  font-size: 12px;
-  color: #cbd5e1;
+font-size: 12px;
+color: #cbd5e1;
 }
-
 .close-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: transparent;
-  color: #ffffff;
-  font-size: 16px;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
+width: 34px;
+height: 34px;
+border-radius: 10px;
+border: 1px solid rgba(255, 255, 255, 0.2);
+background: transparent;
+color: #ffffff;
+font-size: 16px;
+cursor: pointer;
+transition: background-color 0.2s ease;
 }
-
 .close-btn:hover {
-  background-color: rgba(255, 255, 255, 0.14);
+background-color: rgba(255, 255, 255, 0.14);
 }
-
 /* Основная сетка модального окна */
 .modal-content {
-  display: grid;
-  grid-template-columns: 340px 1fr;
-  gap: 24px;
-  padding: 24px;
+display: grid;
+grid-template-columns: 340px 1fr;
+gap: 24px;
+padding: 24px;
 }
-
 /* Левая колонка */
 .media-column {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+display: flex;
+flex-direction: column;
+gap: 12px;
 }
-
 .large-image-box {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  border-radius: 16px;
-  background: linear-gradient(145deg, #e2e8f0 0%, #f1f5f9 100%);
-  border: 1.5px dashed #cbd5e1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
+position: relative;
+width: 100%;
+aspect-ratio: 1 / 1;
+border-radius: 16px;
+background: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%);
+border: 1.5px solid #e2e8f0;
+display: flex;
+align-items: center;
+justify-content: center;
+padding: 14px;
+overflow: hidden;
 }
-
 .large-photo {
-  width: 100%;
-  height: 100%;
-  object-fit: contain; 
-  display: block;
+width: 100%;
+height: 100%;
+object-fit: contain;
+display: block;
 }
-
 .large-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  text-align: center;
-  padding: 16px;
+display: flex;
+flex-direction: column;
+align-items: center;
+gap: 6px;
+text-align: center;
+padding: 16px;
 }
-
 .large-icon {
-  font-size: 64px;
-  opacity: 0.8;
+font-size: 64px;
+opacity: 0.8;
 }
-
 .large-text {
-  font-size: 15px;
-  font-weight: 700;
-  color: #475569;
+font-size: 15px;
+font-weight: 700;
+color: #475569;
 }
-
 .large-hint {
-  font-size: 12px;
-  color: #94a3b8;
+font-size: 12px;
+color: #94a3b8;
 }
-
 .stock-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #334155;
-  background-color: #f8fafc;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid #e2e8f0;
+display: flex;
+align-items: center;
+gap: 8px;
+font-size: 12px;
+font-weight: 600;
+color: #334155;
+background-color: #f8fafc;
+padding: 10px 12px;
+border-radius: 10px;
+border: 1px solid #e2e8f0;
 }
-
 .status-dot {
-  width: 8px;
-  height: 8px;
+width: 8px;
+height: 8px;
 border-radius: 50%;
 background-color: #22c55e;
 flex-shrink: 0;
@@ -383,6 +492,89 @@ font-size: 22px;
 font-weight: 800;
 color: #0f172a;
 line-height: 1.25;
+}
+/* Блок выбора цвета (как на WB) */
+.color-variants-block {
+display: flex;
+flex-direction: column;
+gap: 8px;
+}
+.color-label-row {
+display: flex;
+align-items: center;
+gap: 6px;
+font-size: 13px;
+}
+.color-label {
+color: #64748b;
+}
+.color-current-name {
+color: #0f172a;
+font-weight: 700;
+}
+.color-swatches-grid {
+display: flex;
+flex-wrap: wrap;
+gap: 8px;
+}
+.color-swatch-card {
+width: 64px;
+height: 76px;
+border-radius: 12px;
+border: 2px solid #e2e8f0;
+background-color: #ffffff;
+padding: 4px;
+cursor: pointer;
+overflow: hidden;
+display: flex;
+align-items: center;
+justify-content: center;
+transition: all 0.18s ease;
+}
+.color-swatch-card:hover {
+border-color: #93c5fd;
+transform: translateY(-2px);
+}
+.color-swatch-card.active {
+border-color: #0284c7;
+background-color: rgba(163, 210, 249, 0.18);
+box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
+}
+.swatch-img {
+width: 100%;
+height: 100%;
+object-fit: contain;
+border-radius: 8px;
+display: block;
+}
+/* Базовая заглушка для миниатюры без фото */
+.swatch-placeholder {
+width: 100%;
+height: 100%;
+border-radius: 8px;
+background: linear-gradient(145deg, #f1f5f9 0%, #e2e8f0 100%);
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+padding: 4px;
+gap: 3px;
+text-align: center;
+}
+.swatch-icon {
+font-size: 20px;
+line-height: 1;
+}
+.swatch-fallback-text {
+font-size: 9px;
+font-weight: 700;
+color: #475569;
+line-height: 1.15;
+display: -webkit-box;
+-webkit-line-clamp: 2;
+-webkit-box-orient: vertical;
+overflow: hidden;
+word-break: break-word;
 }
 .product-description {
 font-size: 14px;
@@ -515,7 +707,6 @@ font-weight: 700;
 color: #0f172a;
 outline: none;
 }
-/* Убираем стрелки у input type="number" */
 .qty-input::-webkit-outer-spin-button,
 .qty-input::-webkit-inner-spin-button {
 -webkit-appearance: none;
@@ -583,17 +774,8 @@ padding: 16px;
 gap: 16px;
 }
 .large-image-box {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 1 / 1;
-  border-radius: 16px;
-  background-color: #ffffff; /* Чистый белый фон под фото */
-  border: 1.5px solid #e2e8f0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px; /* Аккуратный отступ от границ рамки */
-  overflow: hidden;
+background-color: #ffffff;
+padding: 16px;
 }
 .product-title {
 font-size: 18px;
@@ -602,4 +784,67 @@ font-size: 18px;
 font-size: 20px;
 }
 }
+
+.copy-link-btn {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.copy-link-btn:hover {
+  background-color: rgba(163, 210, 249, 0.25);
+  border-color: #A3D2F9;
+  color: #ffffff;
+}
+
+.copy-link-btn.copied {
+  background-color: #22c55e;
+  border-color: #22c55e;
+  color: #ffffff;
+}
+
+.stock-status.low-stock .status-dot {
+  background-color: #f59e0b;
+}
+
+.stock-status.out-of-stock {
+  background-color: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+.stock-status.out-of-stock .status-dot {
+  background-color: #ef4444;
+}
+
+.btn-add-confirm:disabled {
+  background-color: #cbd5e1;
+  color: #64748b;
+  cursor: not-allowed;
+}
+/* Приглушённый вид миниатюры цвета, которого нет в наличии */
+.color-swatch-card.out-of-stock {
+  opacity: 0.45;
+  background-color: #f8fafc;
+}
+
+.color-swatch-card.out-of-stock .swatch-img {
+  filter: grayscale(80%);
+}
+
+.color-swatch-card.out-of-stock:hover {
+  opacity: 0.72;
+}
+
+.color-swatch-card.out-of-stock.active {
+  opacity: 0.85;
+}
+
+
 </style>
