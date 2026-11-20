@@ -810,32 +810,31 @@ def admin_create_product(
     if existing:
         raise HTTPException(status_code=400, detail=f"Товар с артикулом {sku} уже существует")
 
-    try:
-        new_product = models.Product(
-            sku=sku,
-            group_id=(payload.get("groupId") or "").strip() or None,
-            color_name=(payload.get("colorName") or "").strip() or None,
-            category=(payload.get("category") or "Наручные часы").strip(),
-            subcategory=(payload.get("subcategory") or "").strip() or None,
-            name=(payload.get("name") or "").strip(),
-            specs=(payload.get("specs") or "").strip(),
-            description=(payload.get("description") or "").strip() or None,
-            attributes=payload.get("attributes") or None,
-            icon=(payload.get("icon") or "⌚").strip(),
-            image=(payload.get("image") or "").strip() or None,
-            retail_price=max(0.0, float(payload.get("retailPrice") or 0)),
-            wholesale_price=max(0.0, float(payload.get("wholesalePrice") or 0)),
-            min_wholesale_qty=max(1, int(payload.get("minWholesaleQty") or 5)),
-            stock=max(0, int(payload.get("stock") or 0)),
-        )
-        db.add(new_product)
-        db.commit()
-        db.refresh(new_product)
-        return {"ok": True, "id": new_product.id}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=400, detail=f"Ошибка сохранения в БД: {str(e)}")
+    if "subcategory" in payload:
+        product.subcategory = (payload["subcategory"] or "").strip() or None
 
+
+    new_product = models.Product(
+        sku=sku,
+        group_id=(payload.get("groupId") or "").strip() or None,
+        color_name=(payload.get("colorName") or "").strip() or None,
+        category=(payload.get("category") or "Наручные часы").strip(),
+        subcategory=(payload.get("subcategory") or "").strip() or None,
+        name=(payload.get("name") or "").strip(),
+        specs=(payload.get("specs") or "").strip(),
+        description=(payload.get("description") or "").strip() or None,
+        attributes=payload.get("attributes") or None,
+        icon=(payload.get("icon") or "⌚").strip(),
+        image=(payload.get("image") or "").strip() or None,
+        retail_price=max(0.0, float(payload.get("retailPrice") or 0)),
+        wholesale_price=max(0.0, float(payload.get("wholesalePrice") or 0)),
+        min_wholesale_qty=max(1, int(payload.get("minWholesaleQty") or 5)),
+        stock=max(0, int(payload.get("stock") or 0)),
+    )
+    db.add(new_product)
+    db.commit()
+    db.refresh(new_product)
+    return {"ok": True, "id": new_product.id}
 
 
 @app.put("/api/admin/products/{product_id}")

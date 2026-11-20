@@ -281,7 +281,7 @@ const exportPriceListToExcel = () => {
             
             <img 
               v-if="product.image" 
-              :src="product.image" 
+              :src="resolveImageUrl(product.image)" 
               :alt="product.name" 
               class="product-photo"
             />

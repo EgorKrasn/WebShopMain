@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { resolveImageUrl } from '../services/api.js'
 
 const props = defineProps({
   product: {
@@ -177,7 +178,7 @@ const increaseQty = () => {
             <div class="large-image-box">
               <img 
                 v-if="product.image" 
-                :src="product.image" 
+                :src="resolveImageUrl(product.image)" 
                 :alt="product.name" 
                 class="large-photo"
               />

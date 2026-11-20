@@ -1,5 +1,14 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0'
 
+const BACKEND_ORIGIN = API_URL.replace(/\/api\/?$/, '')
+
+export function resolveImageUrl(url) {
+	if (!url) return ''
+	if (url.startsWith('/uploads/')) {
+		return `${BACKEND_ORIGIN}${url}`
+	}
+	return url
+}
 
 
 

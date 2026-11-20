@@ -1,6 +1,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { api } from '../services/api.js'
+import { api, resolveImageUrl } from '../services/api.js'
 
 const emit = defineEmits(['close'])
 
@@ -845,7 +846,7 @@ const handleDeleteOrder = async (order) => {
               </td>
               <td>
                 <div class="prod-cell">
-                  <img v-if="p.image" :src="p.image" class="mini-thumb" alt="" />
+                  <img v-if="p.image" :src="resolveImageUrl(p.image)" class="mini-thumb" alt="" />
                   <div>
                     <strong>{{ p.name }}</strong>
                     <div class="sub-text">{{ p.category }}</div>
@@ -1077,7 +1078,7 @@ const handleDeleteOrder = async (order) => {
                 placeholder="Или вставьте ссылку / путь к фото..."
               />
             </div>
-            <img v-if="productForm.image" :src="productForm.image" class="editor-img-preview" alt="Предпросмотр" />
+            <img v-if="productForm.image" :src="resolveImageUrl(productForm.image)" class="editor-img-preview" alt="Предпросмотр" />
           </div>
 
 
