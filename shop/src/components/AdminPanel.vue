@@ -1,6 +1,5 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { api } from '../services/api.js'
 import { api, resolveImageUrl } from '../services/api.js'
 
 const emit = defineEmits(['close'])
