@@ -4,7 +4,8 @@ import { api, resolveImageUrl } from '../services/api.js'
 
 const emit = defineEmits(['close'])
 
-const activeTab = ref('wholesale') // 'wholesale' | 'orders' | 'products'
+const activeTab = ref('menu') // 'menu' | 'wholesale' | 'orders' | 'products' | 'categories'
+
 const isLoading = ref(false)
 const actionMessage = ref('')
 const errorMessage = ref('')
@@ -101,6 +102,64 @@ const productForm = reactive({
 const pendingWholesaleCount = computed(() => {
   return wholesaleRequests.value.filter((u) => u.wholesaleStatus === 'pending').length
 })
+
+const outOfStockCount = computed(() => {
+  return allProducts.value.filter((p) => (p.stock ?? 0) <= 0).length
+})
+
+// Единый реестр разделов админки — в будущем новые разделы добавляются просто сюда
+const adminSections = computed(() => [
+  {
+    id: 'wholesale',
+    group: 'Продажи и клиенты',
+    icon: '🏢',
+    accent: 'gold',
+    title: 'Заявки юрлиц (УНП)',
+    description: 'Проверка реквизитов компаний и ИП, одобрение и отключение оптового доступа.',
+    badge: pendingWholesaleCount.value > 0 ? `${pendingWholesaleCount.value} новых` : '',
+    badgeType: 'urgent',
+    meta: `Всего заявок: ${wholesaleRequests.value.length}`
+  },
+  {
+    id: 'orders',
+    group: 'Продажи и клиенты',
+    icon: '📦',
+    accent: 'blue',
+    title: 'Управление заказами',
+    description: 'Обработка розничных и оптовых заказов, смена статусов, трек-коды Европочты и архив.',
+    badge: allOrders.value.length > 0 ? `${allOrders.value.length} в работе` : '',
+    badgeType: 'info',
+    meta: `Всего в выборке: ${ordersTotalCount.value || allOrders.value.length}`
+  },
+  {
+    id: 'products',
+    group: 'Каталог и склад',
+    icon: '⌚',
+    accent: 'emerald',
+    title: 'Товары и остатки',
+    description: 'Добавление моделей, загрузка фото, быстрое редактирование розничных/оптовых цен и остатков.',
+    badge: outOfStockCount.value > 0 ? `Нет на складе: ${outOfStockCount.value}` : '',
+    badgeType: 'warn',
+    meta: `Позиций в базе: ${allProducts.value.length}`
+  },
+  {
+    id: 'categories',
+    group: 'Каталог и склад',
+    icon: '📂',
+    accent: 'purple',
+    title: 'Категории и подкатегории',
+    description: 'Настройка структуры меню каталога, иконок разделов, порядка сортировки и подразделов.',
+    badge: '',
+    badgeType: 'neutral',
+    meta: `Разделов: ${allCategories.value.length}`
+  }
+])
+
+const activeSectionTitle = computed(() => {
+  const found = adminSections.value.find((s) => s.id === activeTab.value)
+  return found ? `${found.icon} ${found.title}` : ''
+})
+
 
 const filteredAdminProducts = computed(() => {
   const q = productSearch.value.trim().toLowerCase()
@@ -506,17 +565,6 @@ const handleSelectOrderStatus = async (newStatus) => {
   }
 }
 
-// Внутри saveOrderChanges(orderId) после успешного api.adminUpdateOrder:
-    const target = allOrders.value.find((o) => o.id === orderId)
-    if (target) {
-      target.status = draft.status
-      target.trackCode = draft.trackCode
-      // Если заказ перевели в «Выполнено», убираем его из списка активных в архив
-      if (draft.status === 'completed' && selectedOrderStatus.value !== 'completed') {
-        allOrders.value = allOrders.value.filter((o) => o.id !== orderId)
-      }
-    }
-    showToast('✅ Статус заказа обновлён')
 
 const handleDeleteOrder = async (order) => {
   if (!confirm(`Удалить заказ №${order.number} из базы навсегда?`)) return
@@ -537,68 +585,119 @@ const handleDeleteOrder = async (order) => {
 
 <template>
   <section class="admin-container">
-    <div class="admin-top-bar">
+        <div class="admin-top-bar">
       <div>
-        <h1 class="admin-title">⚙️ Панель управления менеджера</h1>
-        <p class="admin-subtitle">Проверка оптовых клиентов (УНП) и обработка заявок</p>
+        <div v-if="activeTab !== 'menu'" class="admin-breadcrumbs">
+          <button type="button" class="crumb-link" @click="activeTab = 'menu'">
+            Главное меню
+          </button>
+          <span class="crumb-sep">/</span>
+          <span class="crumb-current">{{ activeSectionTitle }}</span>
+        </div>
+        <h1 class="admin-title">
+          {{ activeTab === 'menu' ? '⚙️ Центр управления «СандринТайм»' : activeSectionTitle }}
+        </h1>
+        <p class="admin-subtitle">
+          {{
+            activeTab === 'menu'
+              ? 'Выберите нужный раздел для работы с магазином, клиентами и складом'
+              : 'Управление выбранным разделом панели администратора'
+          }}
+        </p>
       </div>
+
       <div class="admin-top-actions">
+        <button
+          v-if="activeTab !== 'menu'"
+          type="button"
+          class="btn-back-menu"
+          @click="activeTab = 'menu'"
+        >
+          ← В меню админки
+        </button>
         <button type="button" class="btn-refresh" @click="loadAdminData" :disabled="isLoading">
           🔄 Обновить
         </button>
         <button type="button" class="btn-back-store" @click="emit('close')">
-          ← В магазин
+          В магазин ↗
         </button>
       </div>
     </div>
-
-    <!-- Вкладки -->
-    <!-- Вкладки -->
-    <div class="admin-tabs">
-      <button
-        type="button"
-        class="tab-btn"
-        :class="{ active: activeTab === 'wholesale' }"
-        @click="activeTab = 'wholesale'"
-      >
-        🏢 Заявки юрлиц (УНП)
-        <span v-if="pendingWholesaleCount > 0" class="tab-badge">{{ pendingWholesaleCount }}</span>
-      </button>
-
-      <button
-        type="button"
-        class="tab-btn"
-        :class="{ active: activeTab === 'orders' }"
-        @click="activeTab = 'orders'"
-      >
-        📦 Все заказы ({{ allOrders.length }})
-      </button>
-
-      <button
-        type="button"
-        class="tab-btn"
-        :class="{ active: activeTab === 'products' }"
-        @click="activeTab = 'products'"
-      >
-        ⌚ Товары и остатки ({{ allProducts.length }})
-      </button>
-
-      <button
-        type="button"
-        class="tab-btn"
-        :class="{ active: activeTab === 'categories' }"
-        @click="activeTab = 'categories'"
-      >
-        📂 Категории ({{ allCategories.length }})
-      </button>
-
-    </div>
-
 
     <div v-if="actionMessage" class="admin-toast">{{ actionMessage }}</div>
     <div v-if="errorMessage" class="admin-error">{{ errorMessage }}</div>
 
     <div v-if="isLoading" class="admin-loading">Загрузка данных...</div>
+
+    <!-- ГЛАВНОЕ МЕНЮ АДМИН-ПАНЕЛИ (ХАБ РАЗДЕЛОВ) -->
+    <div v-else-if="activeTab === 'menu'" class="admin-hub">
+      <!-- Быстрая сводка по магазину -->
+      <div class="hub-kpi-row">
+        <div class="kpi-card" @click="activeTab = 'wholesale'">
+          <span class="kpi-label">Ожидают проверки УНП</span>
+          <strong class="kpi-val" :class="{ alert: pendingWholesaleCount > 0 }">
+            {{ pendingWholesaleCount }}
+          </strong>
+        </div>
+
+        <div class="kpi-card" @click="activeTab = 'orders'">
+          <span class="kpi-label">Активных заказов</span>
+          <strong class="kpi-val">{{ allOrders.length }}</strong>
+        </div>
+
+        <div class="kpi-card" @click="activeTab = 'products'">
+          <span class="kpi-label">Товаров в каталоге</span>
+          <strong class="kpi-val">{{ allProducts.length }}</strong>
+        </div>
+
+        <div class="kpi-card" @click="activeTab = 'products'">
+          <span class="kpi-label">Закончились на складе</span>
+          <strong class="kpi-val" :class="{ warn: outOfStockCount > 0 }">
+            {{ outOfStockCount }}
+          </strong>
+        </div>
+      </div>
+
+      <!-- Сетка модулей админки -->
+      <div class="hub-sections-grid">
+        <button
+          v-for="sec in adminSections"
+          :key="sec.id"
+          type="button"
+          class="hub-module-card"
+          @click="activeTab = sec.id"
+        >
+          <div class="hub-card-top">
+            <div class="hub-icon-box" :class="sec.accent">
+              {{ sec.icon }}
+            </div>
+            <span v-if="sec.badge" class="hub-badge" :class="sec.badgeType">
+              {{ sec.badge }}
+            </span>
+          </div>
+
+          <div class="hub-card-group">{{ sec.group }}</div>
+          <h2 class="hub-card-title">{{ sec.title }}</h2>
+          <p class="hub-card-desc">{{ sec.description }}</p>
+
+          <div class="hub-card-foot">
+            <span class="hub-meta">{{ sec.meta }}</span>
+            <span class="hub-open-link">Открыть раздел →</span>
+          </div>
+        </button>
+
+        <!-- Заготовка под будущие разделы -->
+        <div class="hub-future-card">
+          <div class="future-icon">🚀</div>
+          <h3>Новые модули в разработке</h3>
+          <p>
+            Сюда легко подключатся аналитика продаж, промокоды, выгрузка отчётов, 
+            управление пользователями и интеграция со складом.
+          </p>
+        </div>
+      </div>
+    </div>
+
 
     <!-- ВКЛАДКА 1: ЗАЯВКИ ЮРЛИЦ -->
     <div v-else-if="activeTab === 'wholesale'" class="tab-content">
@@ -1889,5 +1988,274 @@ cursor: pointer;
   cursor: pointer;
 }
 
+/* Навигация в шапке админки */
+.admin-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.crumb-link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: #A3D2F9;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.crumb-link:hover {
+  text-decoration: underline;
+}
+
+.crumb-sep {
+  color: #64748b;
+}
+
+.crumb-current {
+  color: #cbd5e1;
+}
+
+.btn-back-menu {
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1.5px solid #A3D2F9;
+  background-color: rgba(163, 210, 249, 0.15);
+  color: #A3D2F9;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-back-menu:hover {
+  background-color: #A3D2F9;
+  color: #0f172a;
+}
+
+/* ГЛАВНОЕ МЕНЮ АДМИНКИ (ХАБ) */
+.admin-hub {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.hub-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.kpi-card {
+  background-color: rgba(255, 255, 255, 0.9);
+  border: 1.5px solid #ffffff;
+  border-radius: 16px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+}
+
+.kpi-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.kpi-val {
+  font-size: 28px;
+  font-weight: 900;
+  color: #0f172a;
+  line-height: 1.1;
+}
+
+.kpi-val.alert {
+  color: #dc2626;
+}
+
+.kpi-val.warn {
+  color: #d97706;
+}
+
+/* Сетка карточек разделов */
+.hub-sections-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 18px;
+}
+
+.hub-module-card {
+  text-align: left;
+  background-color: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 20px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.07);
+  transition: all 0.2s ease;
+}
+
+.hub-module-card:hover {
+  border-color: #0f172a;
+  transform: translateY(-4px);
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.14);
+}
+
+.hub-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.hub-icon-box {
+  width: 50px;
+  height: 50px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+
+.hub-icon-box.gold {
+  background-color: #fef3c7;
+}
+
+.hub-icon-box.blue {
+  background-color: #e0f2fe;
+}
+
+.hub-icon-box.emerald {
+  background-color: #dcfce7;
+}
+
+.hub-icon-box.purple {
+  background-color: #f3e8ff;
+}
+
+.hub-badge {
+  font-size: 11.5px;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+
+.hub-badge.urgent {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
+.hub-badge.info {
+  background-color: #e0f2fe;
+  color: #0369a1;
+}
+
+.hub-badge.warn {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.hub-card-group {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #0284c7;
+}
+
+.hub-card-title {
+  font-size: 19px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.hub-card-desc {
+  font-size: 13.5px;
+  color: #475569;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.hub-card-foot {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid #f1f5f9;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hub-meta {
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.hub-open-link {
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.hub-module-card:hover .hub-open-link {
+  color: #0284c7;
+}
+
+/* Карточка-задел на будущее */
+.hub-future-card {
+  background-color: rgba(255, 255, 255, 0.55);
+  border: 2px dashed #94a3b8;
+  border-radius: 20px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  color: #475569;
+}
+
+.future-icon {
+  font-size: 28px;
+}
+
+.hub-future-card h3 {
+  font-size: 16px;
+  font-weight: 800;
+  color: #334155;
+}
+
+.hub-future-card p {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .hub-kpi-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 540px) {
+  .hub-kpi-row {
+    grid-template-columns: 1fr;
+  }
+}
 
 </style>
