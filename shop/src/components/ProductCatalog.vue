@@ -6,6 +6,10 @@ import { api, resolveImageUrl } from '../services/api.js'
 
 
 const props = defineProps({
+  products: {
+    type: Array,
+    default: () => []
+  },
   userRole: {
     type: String,
     default: 'retail'
@@ -29,7 +33,16 @@ const props = defineProps({
 })
 
 
-const emit = defineEmits(['add-to-cart', 'update-qty', 'set-qty', 'reset-filters', 'select-product', 'products-loaded'])
+const emit = defineEmits([
+  'add-to-cart',
+  'update-qty',
+  'set-qty',
+  'reset-filters',
+  'select-product',
+  'products-loaded',
+  'update-search'
+])
+
 
 const isLoadingProducts = ref(false)
 
@@ -119,7 +132,7 @@ onMounted(async () => {
 })
 
 const filteredProducts = computed(() => {
-  return products.value.filter((product) => {
+  return (props.products || []).filter((product) => {
     const matchesCategory =
       !props.selectedCategory || product.category === props.selectedCategory
 
@@ -131,7 +144,7 @@ const filteredProducts = computed(() => {
       !query ||
       product.name.toLowerCase().includes(query) ||
       product.sku.toLowerCase().includes(query) ||
-      product.specs.toLowerCase().includes(query)
+      (product.specs || '').toLowerCase().includes(query)
 
     return matchesCategory && matchesSubcategory && matchesSearch
   })
@@ -162,10 +175,10 @@ const handleDirectQtyInput = (productId, event) => {
 }
 
 const exportPriceListToExcel = () => {
-  if (!products.value || products.value.length === 0) return
+  if (!props.products || props.products.length === 0) return
 
   // 1. Формируем строки таблицы с понятными заголовками
-  const rows = products.value.map((p) => ({
+  const rows = props.products.map((p) => ({
     'Артикул': p.sku || '',
     'Категория': p.category || '',
     'Наименование': p.name || '',
@@ -211,30 +224,59 @@ const exportPriceListToExcel = () => {
       
       <!-- Шапка каталога -->
       <div class="catalog-header">
-        <div>
-          <h1 class="catalog-title">
-            {{ selectedSubcategory || selectedCategory || 'Каталог часов' }}
-          </h1>
+        <div class="catalog-header-top">
+          <div>
+            <h1 class="catalog-title">
+              {{ selectedSubcategory || selectedCategory || 'Каталог часов' }}
+            </h1>
 
-          <p class="catalog-subtitle">
-            Найдено моделей: {{ filteredProducts.length }} • Оптово-розничные поставки по Беларуси
-          </p>
+            <p class="catalog-subtitle">
+              Найдено моделей: {{ filteredProducts.length }} • Оптово-розничные поставки по Беларуси
+            </p>
+          </div>
+
+          <div v-if="userRole === 'wholesale'" class="wholesale-header-actions">
+            <div class="wholesale-badge">
+              🏢 Вы вошли как юрлицо — активны <strong>оптовые цены</strong>
+            </div>
+            <button
+              type="button"
+              class="btn-download-price"
+              @click="exportPriceListToExcel"
+              title="Скачать актуальный оптовый прайс-лист в формате Excel (.xlsx)"
+            >
+              📥 Скачать прайс (Excel)
+            </button>
+          </div>
         </div>
 
-      <div v-if="userRole === 'wholesale'" class="wholesale-header-actions">
-        <div class="wholesale-badge">
-          🏢 Вы вошли как юрлицо — активны <strong>оптовые цены</strong>
+        <!-- Строка поиска для ПК -->
+        <div class="catalog-search-wrapper">
+          <div class="catalog-search-bar">
+            <svg class="search-lead-icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input
+              :value="searchQuery"
+              type="text"
+              class="catalog-search-input"
+              placeholder="Найти часы по названию, бренду, характеристикам или артикулу..."
+              @input="emit('update-search', $event.target.value)"
+            />
+            <button
+              v-if="searchQuery"
+              type="button"
+              class="catalog-search-clear"
+              aria-label="Очистить поиск"
+              @click="emit('update-search', '')"
+            >
+              ✕
+            </button>
+          </div>
         </div>
-        <button
-          type="button"
-          class="btn-download-price"
-          @click="exportPriceListToExcel"
-          title="Скачать актуальный оптовый прайс-лист в формате Excel (.xlsx)"
-        >
-          📥 Скачать прайс (Excel)
-        </button>
       </div>
-      </div>
+
 
       <!-- Панель активных фильтров -->
       <div v-if="hasActiveFilters" class="active-filters-bar">
@@ -1007,5 +1049,100 @@ const exportPriceListToExcel = () => {
   transform: none;
 }
 
+.catalog-header {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+  background-color: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  padding: 20px 24px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+}
+
+.catalog-header-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+
+.catalog-search-wrapper {
+  width: 100%;
+}
+
+.catalog-search-bar {
+  width: 100%;
+  height: 48px;
+  background-color: #ffffff;
+  border: 2px solid #cbd5e1;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.catalog-search-bar:focus-within {
+  border-color: #0f172a;
+  box-shadow: 0 0 0 3px rgba(163, 210, 249, 0.45);
+}
+
+.search-lead-icon {
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.catalog-search-bar:focus-within .search-lead-icon {
+  color: #0f172a;
+}
+
+.catalog-search-input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 15px;
+  color: #0f172a;
+}
+
+.catalog-search-input::placeholder {
+  color: #94a3b8;
+}
+
+.catalog-search-clear {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background-color: #f1f5f9;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.catalog-search-clear:hover {
+  background-color: #0f172a;
+  color: #ffffff;
+}
+
+/* На телефонах поиск уже есть в верхней шапке Navbar, поэтому дублировать его здесь не нужно */
+@media (max-width: 960px) {
+  .catalog-search-wrapper {
+    display: none;
+  }
+}
 
 </style>

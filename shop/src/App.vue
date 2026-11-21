@@ -11,6 +11,10 @@ import CartDrawer from './components/CartDrawer.vue'
 import AccountModal from './components/AccountModal.vue'
 import Footer from './components/Footer.vue'
 import AdminPanel from './components/AdminPanel.vue'
+import HomeView from './views/HomeView.vue'
+import CategorySidebar from './components/CategorySidebar.vue'
+
+
 
 const isAuthModalOpen = ref(false)
 const authModalMode = ref('login')
@@ -47,6 +51,10 @@ const handleSelectCategory = (payload) => {
     selectedCategory.value = payload.category || ''
     selectedSubcategory.value = payload.subcategory || ''
   }
+  if (route.name !== 'catalog') {
+    router.push({ name: 'catalog' })
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 
@@ -273,9 +281,10 @@ const openProductModal = (product) => {
 const closeProductModal = () => {
   selectedProduct.value = null
   if (route.name === 'product') {
-    router.push({ name: 'home' })
+    router.push({ name: 'catalog' })
   }
 }
+
 
 // 3. Переключение цвета внутри модального окна (обновляет URL на артикул нового цвета)
 const handleSelectVariant = (variantId) => {
@@ -304,9 +313,20 @@ watch(
   { immediate: true }
 )
 
+const loadProducts = async () => {
+  try {
+    const serverProducts = await api.getProducts()
+    if (Array.isArray(serverProducts)) {
+      allProducts.value = serverProducts
+    }
+  } catch (err) {
+    console.warn('Не удалось загрузить товары:', err.message)
+  }
+}
+
 onMounted(async () => {
-  // 0. Загружаем актуальные категории для меню
-  await loadCategories()
+  // 0. Загружаем категории и товары параллельно
+  await Promise.all([loadCategories(), loadProducts()])
 
   // 1. Восстанавливаем корзину из localStorage
   const savedCart = localStorage.getItem('sandrintime_cart')
@@ -370,6 +390,25 @@ const loadCategories = async () => {
 }
 
 
+const goToHome = () => {
+  resetFilters()
+  router.push({ name: 'home' })
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+const goToCatalog = () => {
+  router.push({ name: 'catalog' })
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+// Если пользователь начал вводить поиск с главной страницы — автоматически открываем каталог
+watch(searchQuery, (newVal) => {
+  if (newVal.trim() && route.name === 'home') {
+    router.push({ name: 'catalog' })
+  }
+})
+
+
 </script>
 
 
@@ -398,11 +437,9 @@ const loadCategories = async () => {
       @open-cart="isCartOpen = true"
       @update-search="searchQuery = $event"
       @select-category="handleSelectCategory"
+      @go-home="goToHome"
+      @go-catalog="goToCatalog"
     />
-
-
-
-
 
 
 
@@ -420,23 +457,49 @@ const loadCategories = async () => {
         @categories-updated="loadCategories"
       />
 
+      <div v-else class="shop-shell">
+        <CategorySidebar
+          v-if="route.name !== 'home'"
+          :categories="categories"
+          :selected-category="selectedCategory"
+          :selected-subcategory="selectedSubcategory"
+          @select-category="handleSelectCategory"
+        />
 
-      <ProductCatalog 
-        v-else
-        :user-role="userRole"
-        :cart-items="cartItems"
-        :search-query="searchQuery"
-        :selected-category="selectedCategory"
-        :selected-subcategory="selectedSubcategory"
-        @products-loaded="allProducts = $event"
-        @select-product="openProductModal"
-        @add-to-cart="handleAddToCart"
-        @update-qty="handleUpdateQty"
-        @set-qty="handleSetQty"
-        @reset-filters="resetFilters"
-      />
+        <div class="shop-content-area">
+          <HomeView
+            v-if="route.name === 'home'"
+            :categories="categories"
+            :products="allProducts"
+            :current-user="currentUser"
+            @go-catalog="goToCatalog"
+            @select-category="handleSelectCategory"
+            @open-auth="openAuth"
+            @open-account="openAccountModal"
+            @select-product="openProductModal"
+          />
 
+          <ProductCatalog 
+            v-else
+            :products="allProducts"
+            :user-role="userRole"
+            :cart-items="cartItems"
+            :search-query="searchQuery"
+            :selected-category="selectedCategory"
+            :selected-subcategory="selectedSubcategory"
+            @update-search="searchQuery = $event"
+            @select-product="openProductModal"
+            @add-to-cart="handleAddToCart"
+            @update-qty="handleUpdateQty"
+            @set-qty="handleSetQty"
+            @reset-filters="resetFilters"
+          />
+
+        </div>
+      </div>
     </main>
+
+
 
     <!-- Модальное окно подробного просмотра товара -->
     <ProductModal
@@ -513,8 +576,9 @@ body,
   min-height: 100vh;
   margin: 0;
   padding: 0;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
+
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
@@ -630,5 +694,37 @@ body {
   background-color: #f59e0b;
   color: #ffffff;
 }
+
+.shop-shell {
+  max-width: 1520px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.shop-content-area {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Убираем лишние боковые поля у внутренних страниц на ПК, т.к. их задаёт .shop-shell */
+@media (min-width: 961px) {
+  .shop-content-area .home-page,
+  .shop-content-area .catalog-section {
+    padding-left: 0;
+    padding-right: 0;
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 960px) {
+  .shop-shell {
+    padding: 0;
+    display: block;
+  }
+}
+
 
 </style>

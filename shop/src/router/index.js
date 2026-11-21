@@ -11,6 +11,11 @@ const router = createRouter({
 			component: EmptyRouteView,
 		},
 		{
+			path: '/catalog',
+			name: 'catalog',
+			component: EmptyRouteView,
+		},
+		{
 			path: '/product/:sku',
 			name: 'product',
 			component: EmptyRouteView,

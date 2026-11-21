@@ -16,7 +16,18 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['open-auth', 'logout', 'open-cart', 'update-search', 'select-category', 'open-account'])
+const emit = defineEmits([
+  'open-auth',
+  'logout',
+  'open-cart',
+  'update-search',
+  'select-category',
+  'open-account',
+  'go-home',
+  'go-catalog'
+])
+
+
 
 // Состояние выдвижного меню каталога слева
 const isCatalogOpen = ref(false)
@@ -65,11 +76,53 @@ const selectCategory = (categoryName, subcategoryName = '') => {
   <header class="header">
     <div class="container header-inner">
       
-      <!-- 1. Логотип (сбрасывает фильтры при клике) -->
-      <a href="#catalog" class="logo-slot" @click.prevent="clearSearch(); selectCategory('')">
+      <!-- 1. Логотип (возвращает на приветственную страницу) -->
+      <a href="/" class="logo-slot" @click.prevent="clearSearch(); closeCatalog(); emit('go-home')">
         <div class="logo-placeholder">LOGO</div>
         <span class="brand-name">Сандрин<span class="brand-accent">Тайм</span></span>
       </a>
+
+
+      <!-- Навигация по центру шапки для ПК -->
+      <nav class="desktop-nav" aria-label="Основная навигация">
+        <button
+          type="button"
+          class="nav-pill"
+          :class="{ active: $route.name === 'home' }"
+          @click="clearSearch(); emit('go-home')"
+        >
+          🏠 Главная
+        </button>
+
+        <button
+          type="button"
+          class="nav-pill"
+          :class="{ active: $route.name === 'catalog' || $route.name === 'product' }"
+          @click="emit('go-catalog')"
+        >
+          ⌚ Каталог
+        </button>
+
+        <button
+          v-if="!currentUser"
+          type="button"
+          class="nav-pill"
+          @click="emit('open-auth', 'register')"
+        >
+          🏢 Опт / Юрлицам
+        </button>
+
+        <button
+          v-else
+          type="button"
+          class="nav-pill"
+          @click="emit('open-account')"
+        >
+          📋 Мои заявки
+        </button>
+      </nav>
+
+
 
       <!-- 2. Общий блок: Кнопка категорий вплотную слева от поиска -->
       <div class="search-group">
@@ -326,6 +379,8 @@ align-items: center;
 gap: 10px;
 min-width: 0;
 }
+
+
 .wb-catalog-btn {
 width: 46px;
 height: 46px;
@@ -762,4 +817,63 @@ font-size: 17px;
 display: none;
 }
 }
+
+@media (min-width: 961px) {
+  .wb-catalog-btn {
+    display: none !important;
+  }
+}
+
+/* На ПК меню и поиск находятся в каталоге, а на мобильных остаются в шапке */
+@media (min-width: 961px) {
+  .search-group {
+    display: none !important;
+  }
+}
+
+.desktop-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: rgba(30, 41, 59, 0.75);
+  padding: 5px;
+  border-radius: 14px;
+  border: 1px solid rgba(163, 210, 249, 0.2);
+}
+
+.nav-pill {
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: #cbd5e1;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: all 0.18s ease;
+}
+
+.nav-pill:hover {
+  color: #ffffff;
+  background-color: rgba(163, 210, 249, 0.14);
+}
+
+.nav-pill.active {
+  background-color: #A3D2F9;
+  color: #0f172a;
+  box-shadow: 0 2px 8px rgba(163, 210, 249, 0.35);
+}
+
+@media (max-width: 960px) {
+  .desktop-nav {
+    display: none;
+  }
+}
+
+
 </style>
