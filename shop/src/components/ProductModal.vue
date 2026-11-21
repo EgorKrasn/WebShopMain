@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { resolveImageUrl } from '../services/api.js'
 
+
 const props = defineProps({
   product: {
     type: Object,
@@ -230,7 +231,7 @@ const increaseQty = () => {
 
                   <img
                     v-if="variant.image"
-                    :src="variant.image"
+                    :src="resolveImageUrl(variant.image)"
                     :alt="variant.colorName"
                     class="swatch-img"
                   />

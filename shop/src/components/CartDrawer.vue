@@ -1,5 +1,6 @@
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
+import { api, resolveImageUrl } from '../services/api.js'
 import * as XLSX from 'xlsx'
 
 const props = defineProps({
@@ -327,7 +328,7 @@ const exportCartToExcel = () => {
           <ul class="cart-list">
             <li v-for="item in items" :key="item.id" class="cart-item">
               <div class="item-thumb">
-                <img v-if="item.image" :src="item.image" :alt="item.name" class="item-thumb-img" />
+                <img v-if="item.image" :src="resolveImageUrl(item.image)" :alt="item.name" class="item-thumb-img" />
                 <span v-else>{{ item.icon || '⌚' }}</span>
               </div>
               <div class="item-details">
