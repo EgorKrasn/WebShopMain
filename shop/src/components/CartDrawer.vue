@@ -15,6 +15,8 @@ import {
   Handshake,
   Store
 } from 'lucide-vue-next'
+import ConsentCheckbox from './ConsentCheckbox.vue'
+
 
 
 const props = defineProps({
@@ -40,6 +42,7 @@ const emit = defineEmits(['close', 'update-qty', 'set-qty', 'remove-item', 'clea
 
 
 const step = ref('cart')
+const personalDataConsent = ref(false)
 
 // Состояние предупредительного окна об оплате через Европочту
 const isWarningModalOpen = ref(false)
@@ -96,6 +99,7 @@ watch(
       step.value = 'cart'
       formError.value = ''
       isWarningModalOpen.value = false
+      personalDataConsent.value = false
       syncUserData()
     }
   }
@@ -167,7 +171,14 @@ const prepareOrder = () => {
     return
   }
 
+  if (!personalDataConsent.value) {
+    formError.value = 'Подтвердите согласие на обработку персональных данных'
+    return
+  }
+
+
   const payload = {
+    personal_data_consent: personalDataConsent.value,
     role: props.userRole,
     recipient: {
       full_name: orderForm.fullName.trim(),
@@ -530,6 +541,7 @@ const exportCartToExcel = () => {
               <input v-model="orderForm.comment" type="text" placeholder="Удобное время звонка или пожелания..." />
             </div>
           </div>
+          <ConsentCheckbox v-model="personalDataConsent" />
 
           <div v-if="formError" class="checkout-error">{{ formError }}</div>
         </div>

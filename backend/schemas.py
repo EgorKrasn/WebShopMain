@@ -5,12 +5,32 @@ from typing import Optional, List
 class RegisterRequest(BaseModel):
     role: str = "retail"
     email: EmailStr
-    password: str = Field(..., min_length=8, max_length=128)
+    password: str = Field(..., min_length=1, max_length=128)
     full_name: str = Field(..., min_length=2, max_length=120)
     phone: Optional[str] = Field(None, max_length=30)
     unp: Optional[str] = Field(None, max_length=20)
     company_name: Optional[str] = Field(None, max_length=200)
     legal_address: Optional[str] = Field(None, max_length=300)
+    personal_data_consent: bool = Field(...)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_by_role(cls, v, info):
+        role = info.data.get("role", "retail")
+        if role == "wholesale":
+            if len(v) < 8:
+                raise ValueError("Пароль должен содержать минимум 8 символов")
+        else:
+            if len(v) < 8:
+                raise ValueError("Пароль должен содержать минимум 8 символов")
+        return v
+
+    @field_validator("personal_data_consent")
+    @classmethod
+    def validate_register_consent(cls, v):
+        if v is not True:
+            raise ValueError("Необходимо дать согласие на обработку персональных данных")
+        return v
 
     @field_validator("unp")
     @classmethod
@@ -19,6 +39,7 @@ class RegisterRequest(BaseModel):
             if not v or not v.isdigit() or len(v) != 9:
                 raise ValueError("УНП для Беларуси должен состоять ровно из 9 цифр")
         return v
+
 
 
 class LoginRequest(BaseModel):
@@ -60,6 +81,15 @@ class OrderCreateRequest(BaseModel):
     comment: Optional[str] = Field(None, max_length=500)
     products_total_byn: float = Field(..., ge=0)
     items: List[OrderItemSchema] = Field(..., min_length=1, max_length=100)
+    personal_data_consent: bool = Field(...)
+
+    @field_validator("personal_data_consent")
+    @classmethod
+    def validate_order_consent(cls, v):
+        if v is not True:
+            raise ValueError("Необходимо подтвердить согласие на обработку персональных данных")
+        return v
+
 
 
 class SwitchRoleRequest(BaseModel):

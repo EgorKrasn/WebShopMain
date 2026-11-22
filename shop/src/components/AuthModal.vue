@@ -3,6 +3,8 @@ import { ref, reactive, watch } from 'vue'
 import { api } from '../services/api.js'
 import { ShoppingBag, Building2, X } from 'lucide-vue-next'
 import { useBackdropClose } from '../composables/useBackdropClose.js'
+import ConsentCheckbox from './ConsentCheckbox.vue'
+
 
 
 const props = defineProps({
@@ -38,6 +40,7 @@ watch(
   (opened) => {
     if (opened) {
       errorMessage.value = ''
+      personalDataConsent.value = false
     }
   }
 )
@@ -52,6 +55,8 @@ const form = reactive({
   companyName: '',
   legalAddress: ''
 })
+
+const personalDataConsent = ref(false)
 
 
 const isCheckingUnp = ref(false)
@@ -73,15 +78,29 @@ const handleSubmit = async () => {
   errorMessage.value = ''
 
   if (mode.value === 'register') {
-    if (form.password.length < 6) {
-      errorMessage.value = 'Пароль должен содержать минимум 6 символов'
-      return
+    if (accountType.value === 'wholesale') {
+      if (form.password.length < 8) {
+        errorMessage.value = 'Пароль должен содержать минимум 8 символов'
+        return
+      }
+    } else {
+      if (form.password.length < 8) {
+        errorMessage.value = 'Пароль должен содержать минимум 8 символов'
+        return
+      }
     }
+
     if (form.password !== form.confirmPassword) {
       errorMessage.value = 'Введённые пароли не совпадают'
       return
     }
+
+    if (!personalDataConsent.value) {
+      errorMessage.value = 'Подтвердите согласие на обработку персональных данных'
+      return
+    }
   }
+
 
   if (mode.value === 'register' && accountType.value === 'wholesale') {
     const cleanUnp = form.unp.replace(/[^0-9]/g, '')
@@ -106,11 +125,13 @@ const handleSubmit = async () => {
       })
     } else {
       userData = await api.register({
+        
         role: accountType.value,
         email: form.email.trim(),
         password: form.password,
         full_name: form.fullName.trim(),
         phone: form.phone.trim(),
+        personal_data_consent: personalDataConsent.value,
         ...(accountType.value === 'wholesale' && {
           unp: form.unp.replace(/[^0-9]/g, ''),
           company_name: form.companyName.trim(),
@@ -265,13 +286,21 @@ const handleSubmit = async () => {
 
           <div class="field-group">
             <label>Пароль *</label>
-            <input v-model="form.password" type="password" placeholder="Минимум 6 символов" required />
+            <input
+              v-model="form.password"
+              type="password"
+              :placeholder="mode === 'register' ? 'Минимум 8 символов' : 'Введите пароль'"
+              required
+            />
           </div>
 
           <div v-if="mode === 'register'" class="field-group">
             <label>Повторите пароль *</label>
             <input v-model="form.confirmPassword" type="password" placeholder="Введите пароль ещё раз" required />
           </div>
+
+          <!-- ВСТАВЬТЕ ЭТУ СТРОКУ СЮДА (сразу перед error-banner и кнопкой submit-btn): -->
+          <ConsentCheckbox v-if="mode === 'register'" v-model="personalDataConsent" />
 
           <div v-if="errorMessage" class="error-banner">
             {{ errorMessage }}
@@ -282,6 +311,7 @@ const handleSubmit = async () => {
             <span v-else-if="mode === 'login'">Войти</span>
             <span v-else>{{ accountType === 'wholesale' ? 'Отправить заявку на опт' : 'Зарегистрироваться' }}</span>
           </button>
+
 
           <p v-if="mode === 'register' && accountType === 'wholesale'" class="bottom-hint">
             Заявка с реквизитами будет проверена менеджером, после чего для аккаунта откроются оптовые цены.
