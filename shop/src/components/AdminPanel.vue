@@ -1,5 +1,6 @@
 <script setup>
-import { ref, reactive, computed, onMounted, markRaw } from 'vue'
+import { ref, reactive, computed, onMounted, markRaw, watch } from 'vue'
+
 import { useRoute, useRouter } from 'vue-router'
 
 import { api, resolveImageUrl } from '../services/api.js'
@@ -12,6 +13,7 @@ import {
   Package,
   Watch,
   FolderTree,
+  Archive,
   Rocket,
   Clock,
   CheckCircle2,
@@ -26,6 +28,7 @@ import {
   Upload,
   X
 } from 'lucide-vue-next'
+
 import CategoryIcon from './CategoryIcon.vue'
 
 import { useBackdropClose } from '../composables/useBackdropClose.js'
@@ -80,13 +83,21 @@ const selectedOrderRole = ref('all') // 'all' | 'wholesale' | 'retail'
 const orderSearchQuery = ref('')
 
 const orderStatusFilters = [
-  { value: 'all', label: 'Все', icon: LayoutGrid },
+  { value: 'all', label: 'Все активные', icon: LayoutGrid },
   { value: 'processing', label: 'В обработке', icon: Clock },
   { value: 'europost_pending', label: 'Уточняется Европочта', icon: Package },
   { value: 'shipped', label: 'Отправлено', icon: Truck },
-  { value: 'ready_pickup', label: 'Готово к самовывозу', icon: Store },
-  { value: 'completed', label: 'Выполнено', icon: CheckCircle2 }
+  { value: 'ready_pickup', label: 'Готово к самовывозу', icon: Store }
 ]
+
+
+const archiveOrders = ref([])
+const archiveTotalCount = ref(0)
+const hasMoreArchive = ref(false)
+const isLoadingMoreArchive = ref(false)
+const archiveSearchQuery = ref('')
+const archiveStatusFilter = ref('all') // 'all' | 'completed' | 'cancelled'
+
 
 
 // Базовая фильтрация по поиску и типу клиента (чтобы счётчики статусов считались корректно)
@@ -216,7 +227,18 @@ const adminSections = computed(() => [
     badge: '',
     badgeType: 'neutral',
     meta: `Разделов: ${allCategories.value.length}`
-  }
+  },
+  {
+    id: 'archive',
+    group: 'Продажи и клиенты',
+    icon: markRaw(Archive),
+    accent: 'slate',
+    title: 'Архив выполненных заявок',
+    description: 'История завершённых и отменённых заказов с возможностью просмотра и восстановления.',
+    badge: '',
+    badgeType: 'neutral',
+    meta: `В архиве: ${archiveTotalCount.value}`
+  },
 ])
 
 
@@ -249,27 +271,37 @@ const loadAdminData = async () => {
   isLoading.value = true
   errorMessage.value = ''
   try {
-    const [reqRes, ordersRes, productsRes, categoriesRes] = await Promise.allSettled([
+    const [reqRes, ordersRes, productsRes, categoriesRes, archiveRes] = await Promise.allSettled([
       api.adminGetWholesaleRequests(),
       api.adminGetOrders('active', ORDERS_PAGE_SIZE, 0),
       api.getProducts(),
-      api.getCategories()
+      api.getCategories(),
+      api.adminGetOrders('archive', ORDERS_PAGE_SIZE, 0)
     ])
 
     if (reqRes.status === 'fulfilled') {
       wholesaleRequests.value = Array.isArray(reqRes.value) ? reqRes.value : []
     }
 
+    orderDrafts.value = {}
+
     if (ordersRes.status === 'fulfilled') {
       const data = ordersRes.value
-      // Поддержка и нового формата { items, total }, и старого массива
       const items = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : [])
       allOrders.value = items
       ordersTotalCount.value = Array.isArray(data) ? items.length : (data?.total ?? items.length)
       hasMoreOrders.value = Boolean(data?.hasMore)
       selectedOrderStatus.value = 'all'
-      orderDrafts.value = {}
       fillOrderDrafts(allOrders.value)
+    }
+
+    if (archiveRes.status === 'fulfilled') {
+      const aData = archiveRes.value
+      const aItems = Array.isArray(aData) ? aData : (Array.isArray(aData?.items) ? aData.items : [])
+      archiveOrders.value = aItems
+      archiveTotalCount.value = Array.isArray(aData) ? aItems.length : (aData?.total ?? aItems.length)
+      hasMoreArchive.value = Boolean(aData?.hasMore)
+      fillOrderDrafts(archiveOrders.value)
     }
 
     if (productsRes.status === 'fulfilled') {
@@ -289,8 +321,7 @@ const loadAdminData = async () => {
       allCategories.value = Array.isArray(categoriesRes.value) ? categoriesRes.value : []
     }
 
-    // Если какой-то из админ-запросов не прошёл (например, истёк токен) — выведем ошибку
-    const firstRejected = [reqRes, ordersRes, productsRes, categoriesRes].find(
+    const firstRejected = [reqRes, ordersRes, productsRes, categoriesRes, archiveRes].find(
       (r) => r.status === 'rejected'
     )
     if (firstRejected) {
@@ -300,6 +331,22 @@ const loadAdminData = async () => {
     isLoading.value = false
   }
 }
+
+const fetchArchiveList = async (reset = true) => {
+  const offset = reset ? 0 : archiveOrders.value.length
+  if (!reset) isLoadingMoreArchive.value = true
+  try {
+    const res = await api.adminGetOrders('archive', ORDERS_PAGE_SIZE, offset)
+    const loadedItems = Array.isArray(res?.items) ? res.items : []
+    archiveOrders.value = reset ? loadedItems : [...archiveOrders.value, ...loadedItems]
+    archiveTotalCount.value = res?.total ?? archiveOrders.value.length
+    hasMoreArchive.value = Boolean(res?.hasMore)
+    fillOrderDrafts(loadedItems)
+  } finally {
+    isLoadingMoreArchive.value = false
+  }
+}
+
 
 
 onMounted(() => {
@@ -332,12 +379,61 @@ const saveOrderChanges = async (orderId) => {
       status: draft.status,
       trackCode: draft.trackCode
     })
-    const target = allOrders.value.find((o) => o.id === orderId)
-    if (target) {
-      target.status = draft.status
-      target.trackCode = draft.trackCode
+
+    const isArchivedStatus = draft.status === 'completed' || draft.status === 'cancelled'
+    const activeIdx = allOrders.value.findIndex((o) => o.id === orderId)
+    const archiveIdx = archiveOrders.value.findIndex((o) => o.id === orderId)
+
+    if (activeIdx !== -1) {
+      const updatedOrder = {
+        ...allOrders.value[activeIdx],
+        status: draft.status,
+        trackCode: draft.trackCode
+      }
+      if (isArchivedStatus) {
+        allOrders.value.splice(activeIdx, 1)
+        ordersTotalCount.value = Math.max(0, ordersTotalCount.value - 1)
+        archiveOrders.value.unshift(updatedOrder)
+        archiveTotalCount.value += 1
+      } else {
+        allOrders.value[activeIdx] = updatedOrder
+      }
+    } else if (archiveIdx !== -1) {
+      const updatedOrder = {
+        ...archiveOrders.value[archiveIdx],
+        status: draft.status,
+        trackCode: draft.trackCode
+      }
+      if (!isArchivedStatus) {
+        archiveOrders.value.splice(archiveIdx, 1)
+        archiveTotalCount.value = Math.max(0, archiveTotalCount.value - 1)
+        allOrders.value.unshift(updatedOrder)
+        ordersTotalCount.value += 1
+      } else {
+        archiveOrders.value[archiveIdx] = updatedOrder
+      }
     }
-    showToast('Статус заказа обновлён')
+
+    // Если была отмена или возврат из отмены — обновим остатки товаров
+    if (draft.status === 'cancelled' || archiveIdx !== -1) {
+      const freshProducts = await api.getProducts()
+      if (Array.isArray(freshProducts)) {
+        allProducts.value = freshProducts
+        for (const p of freshProducts) {
+          if (productQuickDrafts.value[p.id]) {
+            productQuickDrafts.value[p.id].stock = p.stock ?? 0
+          }
+        }
+      }
+    }
+
+    showToast(
+      draft.status === 'cancelled'
+        ? 'Заказ отменён, остатки возвращены на склад'
+        : isArchivedStatus
+          ? 'Заказ перенесён в архив'
+          : 'Статус заказа обновлён'
+    )
   } catch (err) {
     errorMessage.value = err.message || 'Ошибка сохранения заказа'
   }
@@ -632,18 +728,55 @@ const handleSelectOrderStatus = async (newStatus) => {
 }
 
 
-const handleDeleteOrder = async (order) => {
-  if (!confirm(`Удалить заказ №${order.number} из базы навсегда?`)) return
+const handleDeleteOrder = async (order, fromArchive = false) => {
+  const warningText = fromArchive
+    ? `Удалить архивный заказ №${order.number} из истории навсегда?`
+    : `Удалить активный заказ №${order.number}? Товары из заказа автоматически вернутся на склад.`
+  if (!confirm(warningText)) return
+
   errorMessage.value = ''
   try {
     await api.adminDeleteOrder(order.id)
-    allOrders.value = allOrders.value.filter((o) => o.id !== order.id)
-    ordersTotalCount.value = Math.max(0, ordersTotalCount.value - 1)
-    showToast('Заказ удалён')
+    if (fromArchive) {
+      archiveOrders.value = archiveOrders.value.filter((o) => o.id !== order.id)
+      archiveTotalCount.value = Math.max(0, archiveTotalCount.value - 1)
+    } else {
+      allOrders.value = allOrders.value.filter((o) => o.id !== order.id)
+      ordersTotalCount.value = Math.max(0, ordersTotalCount.value - 1)
+      // Обновляем остатки на складе после возврата
+      const freshProducts = await api.getProducts()
+      if (Array.isArray(freshProducts)) {
+        allProducts.value = freshProducts
+        for (const p of freshProducts) {
+          if (productQuickDrafts.value[p.id]) {
+            productQuickDrafts.value[p.id].stock = p.stock ?? 0
+          }
+        }
+      }
+    }
+    showToast(fromArchive ? 'Запись удалена из архива' : 'Заказ удалён, остатки возвращены на склад')
   } catch (err) {
     errorMessage.value = err.message || 'Не удалось удалить заказ'
   }
 }
+
+const filteredArchiveOrders = computed(() => {
+  const q = archiveSearchQuery.value.trim().toLowerCase()
+  return archiveOrders.value.filter((order) => {
+    const matchesStatus =
+      archiveStatusFilter.value === 'all' || order.status === archiveStatusFilter.value
+    if (!matchesStatus) return false
+    if (!q) return true
+
+    return (
+      (order.number || '').toLowerCase().includes(q) ||
+      (order.recipient?.full_name || '').toLowerCase().includes(q) ||
+      (order.recipient?.phone || '').toLowerCase().includes(q) ||
+      (order.companyName || '').toLowerCase().includes(q) ||
+      (order.unp || '').toLowerCase().includes(q)
+    )
+  })
+})
 
 
 </script>
@@ -956,12 +1089,14 @@ const handleDeleteOrder = async (order) => {
               <div class="control-group">
                 <label>Статус заказа:</label>
                 <select v-model="orderDrafts[order.id].status" class="admin-select">
-                  <option value="processing"> В обработке</option>
-                  <option value="europost_pending"> Уточняется доставка Европочтой</option>
-                  <option value="shipped"> Отправлено Европочтой</option>
-                  <option value="ready_pickup"> Готово к самовывозу (ЭКСПОБЕЛ)</option>
-                  <option value="completed"> Выполнено</option>
+                  <option value="processing">В обработке</option>
+                  <option value="europost_pending">Уточняется доставка Европочтой</option>
+                  <option value="shipped">Отправлено Европочтой</option>
+                  <option value="ready_pickup">Готово к самовывозу (ЭКСПОБЕЛ)</option>
+                  <option value="completed">Выполнено (в архив)</option>
+                  <option value="cancelled">Отменён (возврат на склад)</option>
                 </select>
+
               </div>
 
               <div class="control-group">
@@ -995,6 +1130,139 @@ const handleDeleteOrder = async (order) => {
       </template>
 
     </div>
+
+    <!-- ВКЛАДКА 2.5: АРХИВ ВЫПОЛНЕННЫХ И ОТМЕНЁННЫХ ЗАЯВОК -->
+    <div v-else-if="activeTab === 'archive'" class="tab-content">
+      <div class="order-top-filters">
+        <div class="order-search-wrap">
+          <input
+            v-model="archiveSearchQuery"
+            type="text"
+            class="admin-search-input"
+            placeholder="Поиск в архиве по № заказа, ФИО, телефону, компании или УНП..."
+          />
+          <button
+            v-if="archiveSearchQuery"
+            type="button"
+            class="btn-clear-order-search"
+            @click="archiveSearchQuery = ''"
+          >
+            <X :size="14" />
+          </button>
+        </div>
+
+        <div class="role-segment-group">
+          <button
+            type="button"
+            class="role-seg-btn"
+            :class="{ active: archiveStatusFilter === 'all' }"
+            @click="archiveStatusFilter = 'all'"
+          >
+            Весь архив ({{ archiveOrders.length }})
+          </button>
+          <button
+            type="button"
+            class="role-seg-btn"
+            :class="{ active: archiveStatusFilter === 'completed' }"
+            @click="archiveStatusFilter = 'completed'"
+          >
+            Выполненные
+          </button>
+          <button
+            type="button"
+            class="role-seg-btn"
+            :class="{ active: archiveStatusFilter === 'cancelled' }"
+            @click="archiveStatusFilter = 'cancelled'"
+          >
+            Отменённые
+          </button>
+        </div>
+      </div>
+
+      <div v-if="filteredArchiveOrders.length === 0" class="empty-box">
+        В архиве пока нет заявок по выбранным условиям.
+      </div>
+
+      <div v-else class="orders-admin-list">
+        <article v-for="order in filteredArchiveOrders" :key="order.id" class="order-admin-card">
+          <div class="order-admin-head">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <strong class="order-num">Заказ №{{ order.number }}</strong>
+              <span class="order-date">от {{ order.createdAt }}</span>
+              <span class="role-badge" :class="order.role">
+                {{ order.role === 'wholesale' ? `Опт (${order.companyName || 'УНП ' + order.unp})` : 'Розница' }}
+              </span>
+              <span
+                class="status-pill"
+                :class="order.status === 'cancelled' ? 'rejected' : 'approved'"
+              >
+                {{ order.status === 'cancelled' ? 'Отменён (товар возвращён)' : 'Выполнено' }}
+              </span>
+            </div>
+            <div class="order-sum">{{ formatPrice(order.products_total_byn) }} BYN</div>
+          </div>
+
+          <div class="order-client-info">
+            <div><strong>Получатель:</strong> {{ order.recipient.full_name }} • {{ order.recipient.phone }}</div>
+            <div>
+              <strong>Доставка:</strong>
+              <template v-if="order.delivery.method === 'europost'">
+                Европочта (г. {{ order.delivery.city }}, {{ order.delivery.office }})
+              </template>
+              <template v-else-if="order.delivery.method === 'manager'">
+                Опт (обсуждается с менеджером)
+              </template>
+              <template v-else>
+                Самовывоз (ЭКСПОБЕЛ, пав. 218/219)
+              </template>
+            </div>
+            <div v-if="order.trackCode"><strong>Трек-код:</strong> {{ order.trackCode }}</div>
+            <div v-if="order.comment"><strong>Комментарий:</strong> {{ order.comment }}</div>
+          </div>
+
+          <ul class="order-items-mini">
+            <li v-for="item in order.items" :key="item.product_id">
+              [{{ item.sku }}] {{ item.name }} — <strong>{{ item.quantity }} шт.</strong> × {{ formatPrice(item.unit_price) }} BYN
+            </li>
+          </ul>
+
+          <div v-if="orderDrafts[order.id]" class="order-controls">
+            <div class="control-group">
+              <label>Изменить статус (вернуть в работу):</label>
+              <select v-model="orderDrafts[order.id].status" class="admin-select">
+                <option value="completed">Выполнено</option>
+                <option value="cancelled">Отменён</option>
+                <option value="processing">Вернуть в работу (В обработке)</option>
+              </select>
+            </div>
+
+            <button type="button" class="btn-save-order" @click="saveOrderChanges(order.id)">
+              Сохранить
+            </button>
+            <button
+              type="button"
+              class="btn-icon del"
+              title="Удалить запись из архива"
+              @click="handleDeleteOrder(order, true)"
+            >
+              <Trash2 :size="15" />
+            </button>
+          </div>
+        </article>
+      </div>
+
+      <div v-if="hasMoreArchive" style="text-align: center; margin-top: 16px;">
+        <button
+          type="button"
+          class="btn-save-order"
+          :disabled="isLoadingMoreArchive"
+          @click="fetchArchiveList(false)"
+        >
+          {{ isLoadingMoreArchive ? 'Загрузка...' : 'Загрузить ещё из архива' }}
+        </button>
+      </div>
+    </div>
+
 
     <!-- ВКЛАДКА 3: ТОВАРЫ И ОСТАТКИ -->
     <div v-else-if="activeTab === 'products'" class="tab-content">
@@ -1124,10 +1392,10 @@ const handleDeleteOrder = async (order) => {
 
             <div class="row-actions">
               <button type="button" class="btn-icon edit" title="Редактировать" @click="openEditCategoryModal(cat)">
-                ✏️
+                <Pencil :size="15" />
               </button>
               <button type="button" class="btn-icon del" title="Удалить" @click="deleteCategoryItem(cat)">
-                🗑️
+                <Trash2 :size="15" />
               </button>
             </div>
           </div>
@@ -2460,5 +2728,12 @@ cursor: pointer;
   background-color: #f3e8ff;
   color: #7c3aed;
 }
+
+
+.hub-icon-box.slate {
+  background-color: #f1f5f9;
+  color: #334155;
+}
+
 
 </style>

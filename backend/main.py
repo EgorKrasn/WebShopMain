@@ -695,10 +695,28 @@ def admin_review_wholesale(
     db.commit()
     return {"ok": True, "userId": user.id, "wholesaleStatus": user.wholesale_status}
 
+def adjust_order_stock(db: Session, order: models.Order, restore: bool):
+    """
+    restore=True  -> возвращает товары из заказа обратно на склад (+quantity)
+    restore=False -> списывает товары из заказа со склада (-quantity)
+    """
+    for item in order.items:
+        product = db.query(models.Product).filter(models.Product.id == item.product_id).first()
+        if not product:
+            continue
+        if restore:
+            product.stock = (product.stock or 0) + item.quantity
+        else:
+            if (product.stock or 0) < item.quantity:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Недостаточно товара «{product.name}» на складе для возобновления заказа (доступно: {product.stock} шт.)"
+                )
+            product.stock -= item.quantity
 
 @app.get("/api/admin/orders")
 def admin_get_all_orders(
-    status_filter: str = "active",  # 'active' (в работе) или 'completed' (выполненные)
+    status_filter: str = "active",  # 'active' (в работе) или 'archive' / 'completed' (выполненные и отменённые)
     limit: int = 20,
     offset: int = 0,
     admin: models.User = Depends(security.get_current_admin_required),
@@ -706,10 +724,10 @@ def admin_get_all_orders(
 ):
     query = db.query(models.Order)
 
-    if status_filter == "completed":
-        query = query.filter(models.Order.status == "completed")
+    if status_filter in ("completed", "archive"):
+        query = query.filter(models.Order.status.in_(["completed", "cancelled"]))
     elif status_filter == "active":
-        query = query.filter(models.Order.status != "completed")
+        query = query.filter(models.Order.status.notin_(["completed", "cancelled"]))
 
     total_count = query.count()
     orders = (
@@ -770,6 +788,11 @@ def admin_delete_order(
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
+
+    # Если заказ не был отменён ранее и не завершён как проданный — возвращаем остатки на склад
+    if order.status not in ("cancelled", "completed"):
+        adjust_order_stock(db, order, restore=True)
+
     db.delete(order)
     db.commit()
     return {"ok": True}
@@ -787,8 +810,19 @@ def admin_update_order(
     if not order:
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    if "status" in payload and payload["status"]:
-        order.status = payload["status"]
+    old_status = order.status
+    new_status = payload.get("status")
+
+    if new_status and new_status != old_status:
+        # Переводим в "Отменён" -> возвращаем остатки на склад
+        if new_status == "cancelled" and old_status != "cancelled":
+            adjust_order_stock(db, order, restore=True)
+        # Возвращаем отменённый заказ обратно в работу -> снова списываем со склада
+        elif old_status == "cancelled" and new_status != "cancelled":
+            adjust_order_stock(db, order, restore=False)
+
+        order.status = new_status
+
     if "trackCode" in payload:
         order.track_code = (payload["trackCode"] or "").strip() or None
 

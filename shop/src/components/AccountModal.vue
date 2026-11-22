@@ -139,10 +139,12 @@ const getStatusBadge = (status) => {
     europost_pending: { label: 'Уточняется доставка Европочтой', class: 'status-europost', icon: Package },
     shipped: { label: 'Отправлено Европочтой', class: 'status-shipped', icon: Truck },
     ready_pickup: { label: 'Готово к самовывозу (ЭКСПОБЕЛ)', class: 'status-ready', icon: Store },
-    completed: { label: 'Выполнено', class: 'status-completed', icon: CheckCircle2 }
+    completed: { label: 'Выполнено', class: 'status-completed', icon: CheckCircle2 },
+    cancelled: { label: 'Отменён', class: 'status-cancelled', icon: XCircle }
   }
   return map[status] || map.processing
 }
+
 
 
 const formatPrice = (value) => {
@@ -1004,5 +1006,9 @@ gap: 2px;
   color: #b91c1c;
 }
 
+.status-cancelled {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
 
 </style>
