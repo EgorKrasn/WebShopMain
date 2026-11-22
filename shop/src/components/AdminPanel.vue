@@ -1,8 +1,53 @@
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, markRaw } from 'vue'
+
 import { api, resolveImageUrl } from '../services/api.js'
+import {
+  Settings,
+  RefreshCw,
+  ArrowUpRight,
+  ArrowLeft,
+  Building2,
+  Package,
+  Watch,
+  FolderTree,
+  Rocket,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  LayoutGrid,
+  Truck,
+  Store,
+  ShoppingBag,
+  Trash2,
+  Save,
+  Pencil,
+  Upload,
+  X
+} from 'lucide-vue-next'
+import CategoryIcon from './CategoryIcon.vue'
+
+import { useBackdropClose } from '../composables/useBackdropClose.js'
+
+
+// Доступные векторные иконки для выбора при создании/редактировании категории
+const categoryIconOptions = [
+  { key: 'watch', label: 'Наручные' },
+  { key: 'clock', label: 'Настенные' },
+  { key: 'alarm', label: 'Будильники' },
+  { key: 'weather', label: 'Метео' },
+  { key: 'electronics', label: 'Электроника' },
+  { key: 'radio', label: 'Радио' },
+  { key: 'accessories', label: 'Аксессуары' },
+  { key: 'gift', label: 'Подарки' }
+]
+
 
 const emit = defineEmits(['close'])
+
+const categoryBackdrop = useBackdropClose(() => { isCategoryFormOpen.value = false })
+const productBackdrop = useBackdropClose(() => { isProductFormOpen.value = false })
+
 
 const activeTab = ref('menu') // 'menu' | 'wholesale' | 'orders' | 'products' | 'categories'
 
@@ -17,13 +62,14 @@ const selectedOrderRole = ref('all') // 'all' | 'wholesale' | 'retail'
 const orderSearchQuery = ref('')
 
 const orderStatusFilters = [
-  { value: 'all', label: '📋 Все' },
-  { value: 'processing', label: '⏳ В обработке' },
-  { value: 'europost_pending', label: '📦 Уточняется Европочта' },
-  { value: 'shipped', label: '🚚 Отправлено' },
-  { value: 'ready_pickup', label: '🏪 Готово к самовывозу' },
-  { value: 'completed', label: '✅ Выполнено' }
+  { value: 'all', label: 'Все', icon: LayoutGrid },
+  { value: 'processing', label: 'В обработке', icon: Clock },
+  { value: 'europost_pending', label: 'Уточняется Европочта', icon: Package },
+  { value: 'shipped', label: 'Отправлено', icon: Truck },
+  { value: 'ready_pickup', label: 'Готово к самовывозу', icon: Store },
+  { value: 'completed', label: 'Выполнено', icon: CheckCircle2 }
 ]
+
 
 // Базовая фильтрация по поиску и типу клиента (чтобы счётчики статусов считались корректно)
 const baseFilteredOrders = computed(() => {
@@ -112,7 +158,7 @@ const adminSections = computed(() => [
   {
     id: 'wholesale',
     group: 'Продажи и клиенты',
-    icon: '🏢',
+    icon: markRaw(Building2),
     accent: 'gold',
     title: 'Заявки юрлиц (УНП)',
     description: 'Проверка реквизитов компаний и ИП, одобрение и отключение оптового доступа.',
@@ -123,7 +169,7 @@ const adminSections = computed(() => [
   {
     id: 'orders',
     group: 'Продажи и клиенты',
-    icon: '📦',
+    icon: markRaw(Package),
     accent: 'blue',
     title: 'Управление заказами',
     description: 'Обработка розничных и оптовых заказов, смена статусов, трек-коды Европочты и архив.',
@@ -134,7 +180,7 @@ const adminSections = computed(() => [
   {
     id: 'products',
     group: 'Каталог и склад',
-    icon: '⌚',
+    icon: markRaw(Watch),
     accent: 'emerald',
     title: 'Товары и остатки',
     description: 'Добавление моделей, загрузка фото, быстрое редактирование розничных/оптовых цен и остатков.',
@@ -145,7 +191,7 @@ const adminSections = computed(() => [
   {
     id: 'categories',
     group: 'Каталог и склад',
-    icon: '📂',
+    icon: markRaw(FolderTree),
     accent: 'purple',
     title: 'Категории и подкатегории',
     description: 'Настройка структуры меню каталога, иконок разделов, порядка сортировки и подразделов.',
@@ -155,10 +201,12 @@ const adminSections = computed(() => [
   }
 ])
 
+
 const activeSectionTitle = computed(() => {
   const found = adminSections.value.find((s) => s.id === activeTab.value)
-  return found ? `${found.icon} ${found.title}` : ''
+  return found ? found.title : ''
 })
+
 
 
 const filteredAdminProducts = computed(() => {
@@ -250,7 +298,7 @@ const handleWholesaleDecision = async (userId, decision) => {
       target.wholesaleStatus = decision
       target.role = decision === 'approved' ? 'wholesale' : 'retail'
     }
-    showToast(decision === 'approved' ? '✅ Оптовый доступ одобрен!' : '❌ Заявка отклонена')
+    showToast(decision === 'approved' ? 'Оптовый доступ одобрен!' : 'Заявка отклонена')
   } catch (err) {
     errorMessage.value = err.message || 'Не удалось обновить статус юрлица'
   }
@@ -271,7 +319,7 @@ const saveOrderChanges = async (orderId) => {
       target.status = draft.status
       target.trackCode = draft.trackCode
     }
-    showToast('✅ Статус заказа обновлён')
+    showToast('Статус заказа обновлён')
   } catch (err) {
     errorMessage.value = err.message || 'Ошибка сохранения заказа'
   }
@@ -294,7 +342,7 @@ const saveQuickProductRow = async (productId) => {
       target.wholesalePrice = Number(draft.wholesalePrice)
       target.stock = Number(draft.stock)
     }
-    showToast('✅ Цена и остаток обновлены')
+    showToast('Цена и остаток обновлены')
   } catch (err) {
     errorMessage.value = err.message || 'Ошибка обновления товара'
   }
@@ -392,10 +440,10 @@ const submitProductForm = async () => {
   try {
     if (editingProductId.value) {
       await api.adminUpdateProduct(editingProductId.value, payload)
-      showToast('✅ Товар успешно обновлён')
+      showToast('Товар успешно обновлён')
     } else {
       await api.adminCreateProduct(payload)
-      showToast('✅ Новый товар добавлен в каталог')
+      showToast('Новый товар добавлен в каталог')
     }
     isProductFormOpen.value = false
     await loadAdminData()
@@ -410,7 +458,7 @@ const deleteProductItem = async (product) => {
   try {
     await api.adminDeleteProduct(product.id)
     allProducts.value = allProducts.value.filter((p) => p.id !== product.id)
-    showToast('🗑️ Товар удалён')
+    showToast('Товар удалён')
   } catch (err) {
     errorMessage.value = err.message || 'Ошибка удаления товара'
   }
@@ -431,7 +479,7 @@ const handleImageFileUpload = async (event) => {
     const res = await api.adminUploadImage(file)
     if (res?.url) {
       productForm.image = res.url
-      showToast('🖼️ Фото загружено')
+      showToast('Фото загружено')
     }
   } catch (err) {
     errorMessage.value = err.message || 'Не удалось загрузить фото'
@@ -455,7 +503,7 @@ const openCreateCategoryModal = () => {
   editingCategoryId.value = null
   Object.assign(categoryForm, {
     name: '',
-    icon: '⌚',
+    icon: 'watch',
     sortOrder: allCategories.value.length + 1,
     subcategories: ['']
   })
@@ -494,10 +542,10 @@ const submitCategoryForm = async () => {
   try {
     if (editingCategoryId.value) {
       await api.adminUpdateCategory(editingCategoryId.value, payload)
-      showToast('✅ Категория обновлена')
+      showToast('Категория обновлена')
     } else {
       await api.adminCreateCategory(payload)
-      showToast('✅ Категория создана')
+      showToast('Категория создана')
     }
     isCategoryFormOpen.value = false
     await loadAdminData()
@@ -514,7 +562,7 @@ const deleteCategoryItem = async (cat) => {
     await api.adminDeleteCategory(cat.id)
     await loadAdminData()
     emit('categories-updated')
-    showToast('🗑️ Категория удалена')
+    showToast('Категория удалена')
   } catch (err) {
     errorMessage.value = err.message || 'Ошибка удаления категории'
   }
@@ -573,7 +621,7 @@ const handleDeleteOrder = async (order) => {
     await api.adminDeleteOrder(order.id)
     allOrders.value = allOrders.value.filter((o) => o.id !== order.id)
     ordersTotalCount.value = Math.max(0, ordersTotalCount.value - 1)
-    showToast('🗑️ Заказ удалён')
+    showToast('Заказ удалён')
   } catch (err) {
     errorMessage.value = err.message || 'Не удалось удалить заказ'
   }
@@ -594,8 +642,9 @@ const handleDeleteOrder = async (order) => {
           <span class="crumb-sep">/</span>
           <span class="crumb-current">{{ activeSectionTitle }}</span>
         </div>
-        <h1 class="admin-title">
-          {{ activeTab === 'menu' ? '⚙️ Центр управления «СандринТайм»' : activeSectionTitle }}
+        <h1 class="admin-title" style="display: flex; align-items: center; gap: 10px;">
+          <Settings v-if="activeTab === 'menu'" :size="24" color="#A3D2F9" />
+          <span>{{ activeTab === 'menu' ? 'Центр управления «СандринТайм»' : activeSectionTitle }}</span>
         </h1>
         <p class="admin-subtitle">
           {{
@@ -607,21 +656,26 @@ const handleDeleteOrder = async (order) => {
       </div>
 
       <div class="admin-top-actions">
+
         <button
           v-if="activeTab !== 'menu'"
           type="button"
           class="btn-back-menu"
           @click="activeTab = 'menu'"
         >
-          ← В меню админки
+          <ArrowLeft :size="15" />
+          <span>В меню админки</span>
         </button>
         <button type="button" class="btn-refresh" @click="loadAdminData" :disabled="isLoading">
-          🔄 Обновить
+          <RefreshCw :size="15" />
+          <span>Обновить</span>
         </button>
         <button type="button" class="btn-back-store" @click="emit('close')">
-          В магазин ↗
+          <span>В магазин</span>
+          <ArrowUpRight :size="15" />
         </button>
       </div>
+
     </div>
 
     <div v-if="actionMessage" class="admin-toast">{{ actionMessage }}</div>
@@ -669,12 +723,14 @@ const handleDeleteOrder = async (order) => {
         >
           <div class="hub-card-top">
             <div class="hub-icon-box" :class="sec.accent">
-              {{ sec.icon }}
+              <component :is="sec.icon" :size="24" :stroke-width="2.1" />
             </div>
             <span v-if="sec.badge" class="hub-badge" :class="sec.badgeType">
               {{ sec.badge }}
             </span>
           </div>
+
+
 
           <div class="hub-card-group">{{ sec.group }}</div>
           <h2 class="hub-card-title">{{ sec.title }}</h2>
@@ -688,8 +744,9 @@ const handleDeleteOrder = async (order) => {
 
         <!-- Заготовка под будущие разделы -->
         <div class="hub-future-card">
-          <div class="future-icon">🚀</div>
+          <div class="future-icon"><Rocket :size="28" color="#475569" /></div>
           <h3>Новые модули в разработке</h3>
+
           <p>
             Сюда легко подключатся аналитика продаж, промокоды, выгрузка отчётов, 
             управление пользователями и интеграция со складом.
@@ -718,9 +775,16 @@ const handleDeleteOrder = async (order) => {
               <span class="unp-tag">УНП: {{ user.unp }}</span>
             </div>
 
-            <span v-if="user.wholesaleStatus === 'pending'" class="status-pill pending">⏳ Ожидает проверки</span>
-            <span v-else-if="user.wholesaleStatus === 'approved'" class="status-pill approved">✅ Опт одобрен</span>
-            <span v-else class="status-pill rejected">❌ Отклонено</span>
+            <span v-if="user.wholesaleStatus === 'pending'" class="status-pill pending">
+              <Clock :size="13" /> Ожидает проверки
+            </span>
+            <span v-else-if="user.wholesaleStatus === 'approved'" class="status-pill approved">
+              <CheckCircle2 :size="13" /> Опт одобрен
+            </span>
+            <span v-else class="status-pill rejected">
+              <XCircle :size="13" /> Отклонено
+            </span>
+
           </div>
 
           <div class="card-details">
@@ -737,7 +801,7 @@ const handleDeleteOrder = async (order) => {
               class="btn-approve"
               @click="handleWholesaleDecision(user.id, 'approved')"
             >
-              ✅ Одобрить опт
+              <CheckCircle2 :size="15" /> Одобрить опт
             </button>
             <button
               v-if="user.wholesaleStatus !== 'rejected'"
@@ -745,8 +809,9 @@ const handleDeleteOrder = async (order) => {
               class="btn-reject"
               @click="handleWholesaleDecision(user.id, 'rejected')"
             >
-              ❌ Отклонить
+              <XCircle :size="15" /> Отклонить
             </button>
+
           </div>
         </article>
       </div>
@@ -794,7 +859,7 @@ const handleDeleteOrder = async (order) => {
               :class="{ active: selectedOrderRole === 'wholesale' }"
               @click="selectedOrderRole = 'wholesale'"
             >
-              🏢 Опт (Юрлица)
+              <Building2 :size="14" /> Опт (Юрлица)
             </button>
             <button
               type="button"
@@ -802,8 +867,9 @@ const handleDeleteOrder = async (order) => {
               :class="{ active: selectedOrderRole === 'retail' }"
               @click="selectedOrderRole = 'retail'"
             >
-              🛍️ Розница
+              <ShoppingBag :size="14" /> Розница
             </button>
+
           </div>
         </div>
 
@@ -817,9 +883,11 @@ const handleDeleteOrder = async (order) => {
             :class="{ active: selectedOrderStatus === filter.value }"
             @click="selectedOrderStatus = filter.value"
           >
+            <component :is="filter.icon" :size="14" />
             <span>{{ filter.label }}</span>
             <span class="filter-pill-count">{{ orderCountsByStatus[filter.value] || 0 }}</span>
           </button>
+
         </div>
 
         <div v-if="filteredAdminOrders.length === 0" class="empty-box">
@@ -870,11 +938,11 @@ const handleDeleteOrder = async (order) => {
               <div class="control-group">
                 <label>Статус заказа:</label>
                 <select v-model="orderDrafts[order.id].status" class="admin-select">
-                  <option value="processing">⏳ В обработке</option>
-                  <option value="europost_pending">📦 Уточняется доставка Европочтой</option>
-                  <option value="shipped">🚚 Отправлено Европочтой</option>
-                  <option value="ready_pickup">🏪 Готово к самовывозу (ЭКСПОБЕЛ)</option>
-                  <option value="completed">✅ Выполнено</option>
+                  <option value="processing"> В обработке</option>
+                  <option value="europost_pending"> Уточняется доставка Европочтой</option>
+                  <option value="shipped"> Отправлено Европочтой</option>
+                  <option value="ready_pickup"> Готово к самовывозу (ЭКСПОБЕЛ)</option>
+                  <option value="completed"> Выполнено</option>
                 </select>
               </div>
 
@@ -891,7 +959,7 @@ const handleDeleteOrder = async (order) => {
               <button type="button" class="btn-save-order" @click="saveOrderChanges(order.id)">
                 Сохранить
               </button>
-              <button type="button" class="btn-icon del" title="Удалить заказ" @click="handleDeleteOrder(order)">🗑️</button>
+              <button type="button" class="btn-icon del" title="Удалить заказ" @click="handleDeleteOrder(order)"><Trash2 :size="15" /></button>
             </div>
           </article>
         </div>
@@ -987,7 +1055,7 @@ const handleDeleteOrder = async (order) => {
                     title="Сохранить цену и остаток"
                     @click="saveQuickProductRow(p.id)"
                   >
-                    💾
+                    <Save :size="15" />
                   </button>
                   <button
                     type="button"
@@ -995,7 +1063,7 @@ const handleDeleteOrder = async (order) => {
                     title="Редактировать карточку и характеристики"
                     @click="openEditProductModal(p)"
                   >
-                    ✏️
+                    <Pencil :size="15" />
                   </button>
                   <button
                     type="button"
@@ -1003,8 +1071,9 @@ const handleDeleteOrder = async (order) => {
                     title="Удалить товар"
                     @click="deleteProductItem(p)"
                   >
-                    🗑️
+                    <Trash2 :size="15" />
                   </button>
+
                 </div>
               </td>
             </tr>
@@ -1028,9 +1097,13 @@ const handleDeleteOrder = async (order) => {
         <article v-for="cat in allCategories" :key="cat.id" class="admin-card">
           <div class="card-header">
             <div>
-              <strong class="company-title">{{ cat.icon }} {{ cat.name }}</strong>
+              <strong class="company-title" style="display: inline-flex; align-items: center; gap: 8px;">
+                <CategoryIcon :icon="cat.icon" :size="18" />
+                <span>{{ cat.name }}</span>
+              </strong>
               <span class="unp-tag">Порядок: {{ cat.sortOrder }}</span>
             </div>
+
             <div class="row-actions">
               <button type="button" class="btn-icon edit" title="Редактировать" @click="openEditCategoryModal(cat)">
                 ✏️
@@ -1059,7 +1132,10 @@ const handleDeleteOrder = async (order) => {
     </div>
 
     <!-- МОДАЛЬНОЕ ОКНО РЕДАКТОРА КАТЕГОРИИ -->
-    <div v-if="isCategoryFormOpen" class="modal-overlay" @click.self="isCategoryFormOpen = false">
+    <div v-if="isCategoryFormOpen" 
+          class="modal-overlay" 
+          @mousedown.self="categoryBackdrop.onBackdropMouseDown" 
+          @mouseup.self="categoryBackdrop.onBackdropMouseUp">
       <form class="product-editor-modal" @submit.prevent="submitCategoryForm">
         <div class="editor-head">
           <h3>{{ editingCategoryId ? 'Редактирование категории' : 'Новая категория каталога' }}</h3>
@@ -1073,17 +1149,29 @@ const handleDeleteOrder = async (order) => {
               <label>Название раздела *</label>
               <input v-model="categoryForm.name" type="text" required placeholder="Например: Настенные часы" />
             </div>
-            <div class="form-grid-2">
-              <div class="f-group">
-                <label>Иконка (эмодзи)</label>
-                <input v-model="categoryForm.icon" type="text" placeholder="⌚" />
-              </div>
-              <div class="f-group">
-                <label>Порядок в меню</label>
-                <input v-model.number="categoryForm.sortOrder" type="number" />
-              </div>
+            <div class="f-group">
+              <label>Порядок в меню</label>
+              <input v-model.number="categoryForm.sortOrder" type="number" />
             </div>
           </div>
+
+          <div class="f-group">
+            <label>Иконка раздела</label>
+            <div class="icon-picker-grid">
+              <button
+                v-for="opt in categoryIconOptions"
+                :key="opt.key"
+                type="button"
+                class="icon-pick-btn"
+                :class="{ active: categoryForm.icon === opt.key }"
+                @click="categoryForm.icon = opt.key"
+              >
+                <CategoryIcon :icon="opt.key" :size="18" />
+                <span>{{ opt.label }}</span>
+              </button>
+            </div>
+          </div>
+
 
           <div class="attrs-editor">
             <div class="attrs-head">
@@ -1106,7 +1194,10 @@ const handleDeleteOrder = async (order) => {
 
 
     <!-- МОДАЛЬНОЕ ОКНО СОЗДАНИЯ / РЕДАКТИРОВАНИЯ ТОВАРА -->
-    <div v-if="isProductFormOpen" class="modal-overlay" @click.self="isProductFormOpen = false">
+    <div v-if="isProductFormOpen" 
+        class="modal-overlay" 
+        @mousedown.self="productBackdrop.onBackdropMouseDown" 
+        @mouseup.self="productBackdrop.onBackdropMouseUp">
       <form class="product-editor-modal" @submit.prevent="submitProductForm">
         <div class="editor-head">
           <h3>{{ editingProductId ? 'Редактирование товара' : 'Новый товар в каталог' }}</h3>
@@ -1124,7 +1215,7 @@ const handleDeleteOrder = async (order) => {
               <label>Категория *</label>
               <select v-model="productForm.category" required @change="productForm.subcategory = ''">
                 <option v-for="c in allCategories" :key="c.id" :value="c.name">
-                  {{ c.icon }} {{ c.name }}
+                  {{ c.name }}
                 </option>
               </select>
             </div>
@@ -1160,8 +1251,9 @@ const handleDeleteOrder = async (order) => {
           <div class="f-group">
             <label>Фотография товара</label>
             <div class="upload-row">
-              <label class="btn-upload-file">
-                {{ isUploadingImage ? 'Загрузка...' : '📁 Выбрать файл с ПК' }}
+              <label class="btn-upload-file" style="gap: 6px;">
+                <Upload :size="14" />
+                <span>{{ isUploadingImage ? 'Загрузка...' : 'Выбрать файл с ПК' }}</span>
                 <input
                   type="file"
                   accept="image/*"
@@ -1170,6 +1262,7 @@ const handleDeleteOrder = async (order) => {
                   @change="handleImageFileUpload"
                 />
               </label>
+
               <input
                 v-model="productForm.image"
                 type="text"
@@ -1277,6 +1370,9 @@ border-radius: 10px;
 font-size: 13px;
 font-weight: 700;
 cursor: pointer;
+display: inline-flex; 
+align-items: center; 
+gap: 6px;
 }
 .btn-refresh {
 border: 1px solid rgba(255, 255, 255, 0.25);
@@ -1388,6 +1484,10 @@ font-weight: 700;
 padding: 4px 9px;
 border-radius: 999px;
 white-space: nowrap;
+display: inline-flex; 
+align-items: center; 
+justify-content: center; 
+gap: 5px;
 }
 .status-pill.pending {
 background-color: #fef3c7;
@@ -1423,6 +1523,10 @@ border: none;
 font-size: 13px;
 font-weight: 700;
 cursor: pointer;
+display: inline-flex; 
+align-items: center; 
+justify-content: center; 
+gap: 5px;
 }
 .btn-approve {
 background-color: #16a34a;
@@ -1637,27 +1741,52 @@ cursor: pointer;
 .btn-icon {
   width: 34px;
   height: 34px;
-  border-radius: 8px;
-  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  border: 1.5px solid #cbd5e1;
   background-color: #ffffff;
   cursor: pointer;
-  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.16s ease;
+}
+
+.btn-icon.save {
+  background-color: #f0fdf4;
+  border-color: #86efac;
+  color: #16a34a;
 }
 
 .btn-icon.save:hover {
-  background-color: #dcfce7;
+  background-color: #16a34a;
   border-color: #16a34a;
+  color: #ffffff;
+}
+
+.btn-icon.edit {
+  background-color: #f0f9ff;
+  border-color: #7dd3fc;
+  color: #0284c7;
 }
 
 .btn-icon.edit:hover {
-  background-color: #e0f2fe;
+  background-color: #0284c7;
   border-color: #0284c7;
+  color: #ffffff;
+}
+
+.btn-icon.del {
+  background-color: #fef2f2;
+  border-color: #fca5a5;
+  color: #dc2626;
 }
 
 .btn-icon.del:hover {
-  background-color: #fee2e2;
-  border-color: #ef4444;
+  background-color: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
 }
+
 
 /* Модальное окно редактора товара */
 .modal-overlay {
@@ -2029,6 +2158,9 @@ cursor: pointer;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.15s ease;
+  display: inline-flex; 
+  align-items: 
+  center; gap: 6px;
 }
 
 .btn-back-menu:hover {
@@ -2256,6 +2388,59 @@ cursor: pointer;
   .hub-kpi-row {
     grid-template-columns: 1fr;
   }
+}
+
+.icon-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.icon-pick-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 6px;
+  border-radius: 10px;
+  border: 1.5px solid #cbd5e1;
+  background-color: #ffffff;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.icon-pick-btn:hover {
+  border-color: #0f172a;
+}
+
+.icon-pick-btn.active {
+  background-color: #0f172a;
+  border-color: #0f172a;
+  color: #A3D2F9;
+}
+
+.hub-icon-box.gold {
+  background-color: #fef3c7;
+  color: #d97706;
+}
+
+.hub-icon-box.blue {
+  background-color: #e0f2fe;
+  color: #0284c7;
+}
+
+.hub-icon-box.emerald {
+  background-color: #dcfce7;
+  color: #16a34a;
+}
+
+.hub-icon-box.purple {
+  background-color: #f3e8ff;
+  color: #7c3aed;
 }
 
 </style>

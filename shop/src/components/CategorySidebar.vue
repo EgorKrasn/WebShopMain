@@ -1,5 +1,8 @@
 <script setup>
 import { ref } from 'vue'
+import { ListFilter, LayoutGrid, ChevronRight } from 'lucide-vue-next'
+import CategoryIcon from './CategoryIcon.vue'
+
 
 const props = defineProps({
   categories: {
@@ -33,7 +36,7 @@ const handleSelect = (categoryName, subcategoryName = '') => {
   <aside class="desktop-sidebar" aria-label="Категории товаров">
     <div class="sidebar-card">
       <div class="sidebar-header">
-        <span class="sidebar-header-icon">☰</span>
+        <ListFilter :size="18" :stroke-width="2.3" class="sidebar-header-icon" />
         <span class="sidebar-header-title">Каталог товаров</span>
       </div>
 
@@ -46,7 +49,7 @@ const handleSelect = (categoryName, subcategoryName = '') => {
             :class="{ active: !selectedCategory }"
             @click="handleSelect('', '')"
           >
-            <span class="item-icon">📋</span>
+            <span class="item-icon"><LayoutGrid :size="18" /></span>
             <span class="item-name">Все товары каталога</span>
           </button>
         </li>
@@ -68,14 +71,13 @@ const handleSelect = (categoryName, subcategoryName = '') => {
             :class="{ active: selectedCategory === cat.name }"
             @click="handleSelect(cat.name, '')"
           >
-            <span class="item-icon">{{ cat.icon || '⌚' }}</span>
+            <span class="item-icon"><CategoryIcon :icon="cat.icon" :size="18" /></span>
             <span class="item-name">{{ cat.name }}</span>
-            <span
+            <ChevronRight
               v-if="cat.subcategories && cat.subcategories.length > 0"
+              :size="16"
               class="item-arrow"
-            >
-              ›
-            </span>
+            />
           </button>
 
           <!-- Всплывающая панель подкатегорий справа при наведении -->
@@ -197,7 +199,9 @@ const handleSelect = (categoryName, subcategoryName = '') => {
 .item-icon {
   font-size: 17px;
   width: 22px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 

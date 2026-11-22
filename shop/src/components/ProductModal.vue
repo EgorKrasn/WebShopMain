@@ -1,6 +1,16 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { resolveImageUrl } from '../services/api.js'
+import {
+  Share2,
+  Check,
+  X,
+  Watch,
+  ShoppingCart
+} from 'lucide-vue-next'
+
+import { useBackdropClose } from '../composables/useBackdropClose.js'
+
 
 
 const props = defineProps({
@@ -30,6 +40,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'add-to-cart', 'select-variant'])
+const { onBackdropMouseDown, onBackdropMouseUp } = useBackdropClose(() => emit('close'))
 
 const quantity = ref(1)
 
@@ -150,7 +161,13 @@ const increaseQty = () => {
 
 <template>
   <Transition name="modal-fade">
-    <div v-if="product" class="modal-backdrop" @click.self="emit('close')">
+    <div
+      v-if="product"
+      class="modal-backdrop"
+      @mousedown.self="onBackdropMouseDown"
+      @mouseup.self="onBackdropMouseUp"
+    >
+
       <div class="modal-card" role="dialog" aria-modal="true" :aria-label="product.name">
         
         <!-- Верхняя панель окна -->
@@ -165,12 +182,15 @@ const increaseQty = () => {
               @click="copyProductLink"
               title="Скопировать прямую ссылку на этот цвет"
             >
-              {{ linkCopied ? '✓ Ссылка скопирована' : '🔗 Поделиться' }}
+              <Check v-if="linkCopied" :size="13" />
+              <Share2 v-else :size="13" />
+              <span>{{ linkCopied ? 'Ссылка скопирована' : 'Поделиться' }}</span>
             </button>
           </div>
           <button type="button" class="close-btn" @click="emit('close')" aria-label="Закрыть окно">
-            ✕
+            <X :size="18" />
           </button>
+
         </div>
 
         <div class="modal-content">
@@ -184,10 +204,13 @@ const increaseQty = () => {
                 class="large-photo"
               />
               <div v-else class="large-placeholder">
-                <span class="large-icon">{{ product.icon || '⌚' }}</span>
+                <span class="large-icon">
+                  <Watch :size="58" :stroke-width="1.5" color="#94a3b8" />
+                </span>
                 <span class="large-text">Фото товара</span>
                 <span class="large-hint">Рекомендуемый размер: 800 × 800 px</span>
               </div>
+
             </div>
 
             <div
@@ -236,9 +259,10 @@ const increaseQty = () => {
                     class="swatch-img"
                   />
                   <div v-else class="swatch-placeholder">
-                    <span class="swatch-icon">{{ variant.icon || '⌚' }}</span>
+                    <Watch :size="18" :stroke-width="1.8" color="#64748b" />
                     <span class="swatch-fallback-text">{{ variant.colorName }}</span>
                   </div>
+
                 </button>
               </div>
             </div>
@@ -320,14 +344,11 @@ const increaseQty = () => {
                 :disabled="isOutOfStock"
                 @click="handleAdd"
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                  <circle cx="9" cy="21" r="1"></circle>
-                  <circle cx="20" cy="21" r="1"></circle>
-                  <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
-                </svg>
+                <ShoppingCart :size="19" :stroke-width="2.2" />
                 <span v-if="isOutOfStock">Нет в наличии</span>
                 <span v-else>Добавить в корзину • {{ formatPrice(totalPrice) }} BYN</span>
               </button>
+
 
               <p v-if="qtyInCart > 0" class="already-in-cart">
                 Сейчас в вашей корзине уже есть {{ qtyInCart }} шт. этой модели.
@@ -407,6 +428,10 @@ color: #ffffff;
 font-size: 16px;
 cursor: pointer;
 transition: background-color 0.2s ease;
+display: inline-flex; 
+align-items: center; 
+justify-content: center;
+
 }
 .close-btn:hover {
 background-color: rgba(255, 255, 255, 0.14);
@@ -797,6 +822,9 @@ font-size: 20px;
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s ease;
+  display: inline-flex; 
+  align-items: center; 
+  gap: 5px;
 }
 
 .copy-link-btn:hover {

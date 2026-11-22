@@ -1,6 +1,18 @@
 <script setup>
 import { computed } from 'vue'
+import {
+  ArrowRight,
+  ArrowUpRight,
+  Building2,
+  User,
+  Watch,
+  Check,
+  ShoppingBag,
+  FileSpreadsheet
+} from 'lucide-vue-next'
 import { resolveImageUrl } from '../services/api.js'
+import CategoryIcon from '../components/CategoryIcon.vue'
+
 
 const props = defineProps({
   categories: {
@@ -66,10 +78,7 @@ const formatPrice = (value) => {
               @click="emit('go-catalog')"
             >
               <span>Перейти в каталог</span>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-                <polyline points="12 5 19 12 12 19"></polyline>
-              </svg>
+              <ArrowRight :size="20" :stroke-width="2.4" />
             </button>
 
             <button
@@ -78,7 +87,8 @@ const formatPrice = (value) => {
               class="btn-secondary-hero"
               @click="emit('open-auth', 'register')"
             >
-              🏢 Оптовым клиентам (по УНП)
+              <Building2 :size="18" :stroke-width="2.1" />
+              <span>Оптовым клиентам (по УНП)</span>
             </button>
 
             <button
@@ -87,8 +97,10 @@ const formatPrice = (value) => {
               class="btn-secondary-hero"
               @click="emit('open-account')"
             >
-              👤 Личный кабинет и заявки
+              <User :size="18" :stroke-width="2.1" />
+              <span>Личный кабинет и заявки</span>
             </button>
+
           </div>
 
           <div class="hero-metrics">
@@ -115,7 +127,10 @@ const formatPrice = (value) => {
             <div class="clock-ring outer"></div>
             <div class="clock-ring inner"></div>
             <div class="clock-center-card">
-              <div class="clock-emoji">⌚</div>
+              <div class="clock-emoji">
+                <Watch :size="44" :stroke-width="1.8" color="#A3D2F9" />
+              </div>
+
               <div class="clock-brand">SANDRIN<span class="gold">TIME</span></div>
               <div class="clock-sub">Розница и Опт • B2C / B2B</div>
               <div class="clock-tags">
@@ -149,9 +164,12 @@ const formatPrice = (value) => {
             @click="emit('select-category', { category: cat.name, subcategory: '' })"
           >
             <div class="cat-card-top">
-              <span class="cat-card-icon">{{ cat.icon || '⌚' }}</span>
-              <span class="cat-card-arrow">↗</span>
+              <span class="cat-card-icon">
+                <CategoryIcon :icon="cat.icon" :size="22" />
+              </span>
+              <ArrowUpRight :size="18" class="cat-card-arrow" />
             </div>
+
             <h3 class="cat-card-title">{{ cat.name }}</h3>
             <p v-if="cat.subcategories && cat.subcategories.length" class="cat-card-subs">
               {{ cat.subcategories.slice(0, 3).join(' • ') }}
@@ -174,9 +192,10 @@ const formatPrice = (value) => {
           </p>
           <ul class="about-checklist">
             <li>
-              <span class="check-badge">✓</span>
+              <span class="check-badge"><Check :size="14" :stroke-width="3" /></span>
               <span>Только проверенные механизмы и официальная гарантия качества</span>
             </li>
+
             <li>
               <span class="check-badge">✓</span>
               <span>Актуальные складские остатки и реальные фото каждого артикула</span>
@@ -191,7 +210,9 @@ const formatPrice = (value) => {
         <!-- Карточки функционала сайта -->
         <div class="features-stack">
           <div class="feature-item">
-            <div class="feature-icon blue">🛍️</div>
+            <div class="feature-icon blue">
+              <ShoppingBag :size="22" color="#0284c7" :stroke-width="2.1" />
+            </div>
             <div class="feature-info">
               <h3>Розничным покупателям</h3>
               <p>
@@ -205,7 +226,9 @@ const formatPrice = (value) => {
           </div>
 
           <div class="feature-item">
-            <div class="feature-icon gold">🏢</div>
+            <div class="feature-icon gold">
+              <Building2 :size="22" color="#d97706" :stroke-width="2.1" />
+            </div>
             <div class="feature-info">
               <h3>Оптовый кабинет для юрлиц и ИП</h3>
               <p>
@@ -223,7 +246,9 @@ const formatPrice = (value) => {
           </div>
 
           <div class="feature-item">
-            <div class="feature-icon slate">📊</div>
+            <div class="feature-icon slate">
+              <FileSpreadsheet :size="22" color="#0f172a" :stroke-width="2.1" />
+            </div>
             <div class="feature-info">
               <h3>Умная корзина и сметы</h3>
               <p>
@@ -262,7 +287,10 @@ const formatPrice = (value) => {
                 :alt="item.name"
                 class="showcase-img"
               />
-              <span v-else class="showcase-emoji">{{ item.icon || '⌚' }}</span>
+              <span v-else class="showcase-emoji">
+                <Watch :size="42" :stroke-width="1.6" color="#94a3b8" />
+              </span>
+
             </div>
 
             <div class="showcase-body">
@@ -408,6 +436,9 @@ const formatPrice = (value) => {
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .btn-secondary-hero:hover {

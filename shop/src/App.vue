@@ -13,6 +13,9 @@ import Footer from './components/Footer.vue'
 import AdminPanel from './components/AdminPanel.vue'
 import HomeView from './views/HomeView.vue'
 import CategorySidebar from './components/CategorySidebar.vue'
+import { ArrowLeft, Settings, CheckCircle2 } from 'lucide-vue-next'
+import { useBackdropClose } from './composables/useBackdropClose.js'
+
 
 
 
@@ -32,6 +35,7 @@ const pendingCartAction = ref(null)
 const route = useRoute()
 const router = useRouter()
 
+const successBackdrop = useBackdropClose(() => { orderSuccessInfo.value = null })
 
 
 
@@ -421,10 +425,19 @@ watch(searchQuery, (newVal) => {
       v-if="isAdmin"
       type="button"
       class="btn-admin-nav"
+      style="display: inline-flex; align-items: center; gap: 6px;"
       @click="isAdminPage ? closeAdminPanel() : openAdminPanel()"
     >
-      {{ isAdminPage ? '← Вернуться в магазин' : '⚙️ Админ-панель' }}
+      <template v-if="isAdminPage">
+        <ArrowLeft :size="15" />
+        <span>Вернуться в магазин</span>
+      </template>
+      <template v-else>
+        <Settings :size="15" />
+        <span>Админ-панель</span>
+      </template>
     </button>
+
 
     <Navbar 
       :key="'nav-' + (currentUser?.role || 'guest')"
@@ -542,9 +555,17 @@ watch(searchQuery, (newVal) => {
 
         <!-- Всплывающее окно об успешной отправке заявки -->
     <Transition name="fade">
-      <div v-if="orderSuccessInfo" class="success-backdrop" @click.self="orderSuccessInfo = null">
+      <div
+        v-if="orderSuccessInfo"
+        class="success-backdrop"
+        @mousedown.self="successBackdrop.onBackdropMouseDown"
+        @mouseup.self="successBackdrop.onBackdropMouseUp"
+      >
         <div class="success-modal" role="dialog" aria-modal="true">
-          <div class="success-icon">✅</div>
+          <div class="success-icon">
+            <CheckCircle2 :size="48" color="#16a34a" :stroke-width="2" />
+          </div>
+
           <h3 class="success-title">{{ orderSuccessInfo.title }}</h3>
           <p class="success-main-msg">{{ orderSuccessInfo.message }}</p>
           <p class="success-sub-msg">{{ orderSuccessInfo.subtext }}</p>

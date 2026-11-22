@@ -2,6 +2,15 @@
 import { ref, computed, onMounted } from 'vue'
 import * as XLSX from 'xlsx'
 import { api, resolveImageUrl } from '../services/api.js'
+import {
+  Building2,
+  FileSpreadsheet,
+  Search,
+  X,
+  ShoppingCart,
+  Watch
+} from 'lucide-vue-next'
+
 
 
 
@@ -237,7 +246,8 @@ const exportPriceListToExcel = () => {
 
           <div v-if="userRole === 'wholesale'" class="wholesale-header-actions">
             <div class="wholesale-badge">
-              🏢 Вы вошли как юрлицо — активны <strong>оптовые цены</strong>
+              <Building2 :size="16" style="vertical-align: -3px; margin-right: 4px;" />
+              Вы вошли как юрлицо — активны <strong>оптовые цены</strong>
             </div>
             <button
               type="button"
@@ -245,18 +255,17 @@ const exportPriceListToExcel = () => {
               @click="exportPriceListToExcel"
               title="Скачать актуальный оптовый прайс-лист в формате Excel (.xlsx)"
             >
-              📥 Скачать прайс (Excel)
+              <FileSpreadsheet :size="16" />
+              <span>Скачать прайс (Excel)</span>
             </button>
           </div>
+
         </div>
 
         <!-- Строка поиска для ПК -->
         <div class="catalog-search-wrapper">
           <div class="catalog-search-bar">
-            <svg class="search-lead-icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
+            <Search :size="19" :stroke-width="2.2" class="search-lead-icon" />
             <input
               :value="searchQuery"
               type="text"
@@ -271,9 +280,10 @@ const exportPriceListToExcel = () => {
               aria-label="Очистить поиск"
               @click="emit('update-search', '')"
             >
-              ✕
+              <X :size="15" />
             </button>
           </div>
+
         </div>
       </div>
 
@@ -299,8 +309,11 @@ const exportPriceListToExcel = () => {
 
       <!-- Если по запросу ничего не найдено -->
       <div v-if="filteredProducts.length === 0" class="empty-search-state">
-        <div class="empty-search-icon">🔍</div>
+        <div class="empty-search-icon">
+          <Search :size="44" :stroke-width="1.6" color="#64748b" />
+        </div>
         <h2>По вашему запросу ничего не найдено</h2>
+
         <p>Попробуйте изменить поисковый запрос или сбросить выбранную категорию.</p>
         <button type="button" class="btn-reset-main" @click="emit('reset-filters')">
           Показать все часы
@@ -329,10 +342,13 @@ const exportPriceListToExcel = () => {
             />
 
             <div v-else class="placeholder-center">
-              <span class="placeholder-icon">{{ product.icon }}</span>
+              <span class="placeholder-icon">
+                <Watch :size="40" :stroke-width="1.6" color="#94a3b8" />
+              </span>
               <span class="placeholder-text">Фото товара</span>
               <span class="placeholder-hint">400 × 400 px</span>
             </div>
+
 
             
           </div>
@@ -397,13 +413,10 @@ const exportPriceListToExcel = () => {
             >
               <span v-if="(product.stock ?? 0) <= 0">Нет в наличии</span>
               <template v-else>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                  <circle cx="9" cy="21" r="1"></circle>
-                  <circle cx="20" cy="21" r="1"></circle>
-                  <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
-                </svg>
+                <ShoppingCart :size="17" :stroke-width="2.2" />
                 <span>В корзину</span>
               </template>
+
             </button>
 
 

@@ -1,6 +1,9 @@
 <script setup>
 import { ref, reactive, watch } from 'vue'
 import { api } from '../services/api.js'
+import { ShoppingBag, Building2, X } from 'lucide-vue-next'
+import { useBackdropClose } from '../composables/useBackdropClose.js'
+
 
 const props = defineProps({
   isOpen: {
@@ -14,6 +17,8 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'success'])
+const { onBackdropMouseDown, onBackdropMouseUp } = useBackdropClose(() => emit('close'))
+
 
 const mode = ref(props.initialMode)
 const accountType = ref('retail')
@@ -133,7 +138,13 @@ const handleSubmit = async () => {
 
 <template>
   <Transition name="fade">
-    <div v-if="isOpen" class="modal-backdrop" @click.self="emit('close')">
+    <div
+      v-if="isOpen"
+      class="modal-backdrop"
+      @mousedown.self="onBackdropMouseDown"
+      @mouseup.self="onBackdropMouseUp"
+    >
+
       <div class="modal-card" role="dialog" aria-modal="true" aria-label="Вход и регистрация">
         
         <!-- Шапка окна с рабочей кнопкой закрытия -->
@@ -142,8 +153,9 @@ const handleSubmit = async () => {
             <span class="brand-title">Сандрин<span class="brand-accent">Тайм</span></span>
           </div>
           <button type="button" class="close-btn" @click="emit('close')" aria-label="Закрыть окно">
-            ✕
+            <X :size="18" />
           </button>
+
         </div>
 
         <!-- Вкладки Вход / Регистрация -->
@@ -178,7 +190,7 @@ const handleSubmit = async () => {
                 :class="{ selected: accountType === 'retail' }"
                 @click="accountType = 'retail'"
               >
-                <span class="type-icon">🛍️</span>
+                <span class="type-icon"><ShoppingBag :size="20" color="#0284c7" /></span>
                 <div class="type-info">
                   <strong>Физлицо</strong>
                   <span>Розничные покупки</span>
@@ -191,12 +203,13 @@ const handleSubmit = async () => {
                 :class="{ selected: accountType === 'wholesale' }"
                 @click="accountType = 'wholesale'"
               >
-                <span class="type-icon">🏢</span>
+                <span class="type-icon"><Building2 :size="20" color="#0f172a" /></span>
                 <div class="type-info">
                   <strong>Юрлицо / ИП</strong>
                   <span>Оптовые цены по УНП</span>
                 </div>
               </button>
+
             </div>
           </div>
 

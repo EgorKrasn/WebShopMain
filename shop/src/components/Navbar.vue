@@ -1,5 +1,20 @@
 <script setup>
 import { ref } from 'vue'
+import {
+  Home,
+  Watch,
+  Building2,
+  ClipboardList,
+  User,
+  ShoppingCart,
+  Menu,
+  X,
+  Search,
+  ChevronRight,
+  LayoutGrid
+} from 'lucide-vue-next'
+import CategoryIcon from './CategoryIcon.vue'
+
 
 const props = defineProps({
   cartCount: {
@@ -91,7 +106,8 @@ const selectCategory = (categoryName, subcategoryName = '') => {
           :class="{ active: $route.name === 'home' }"
           @click="clearSearch(); emit('go-home')"
         >
-          🏠 Главная
+          <Home :size="16" :stroke-width="2.2" />
+          <span>Главная</span>
         </button>
 
         <button
@@ -100,7 +116,8 @@ const selectCategory = (categoryName, subcategoryName = '') => {
           :class="{ active: $route.name === 'catalog' || $route.name === 'product' }"
           @click="emit('go-catalog')"
         >
-          ⌚ Каталог
+          <Watch :size="16" :stroke-width="2.2" />
+          <span>Каталог</span>
         </button>
 
         <button
@@ -109,7 +126,8 @@ const selectCategory = (categoryName, subcategoryName = '') => {
           class="nav-pill"
           @click="emit('open-auth', 'register')"
         >
-          🏢 Опт / Юрлицам
+          <Building2 :size="16" :stroke-width="2.2" />
+          <span>Опт / Юрлицам</span>
         </button>
 
         <button
@@ -118,9 +136,11 @@ const selectCategory = (categoryName, subcategoryName = '') => {
           class="nav-pill"
           @click="emit('open-account')"
         >
-          📋 Мои заявки
+          <ClipboardList :size="16" :stroke-width="2.2" />
+          <span>Мои заявки</span>
         </button>
       </nav>
+
 
 
 
@@ -133,15 +153,8 @@ const selectCategory = (categoryName, subcategoryName = '') => {
           @click="toggleCatalog"
           aria-label="Открыть каталог товаров"
         >
-          <svg v-if="!isCatalogOpen" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-            <line x1="4" y1="6" x2="20" y2="6"></line>
-            <line x1="4" y1="12" x2="20" y2="12"></line>
-            <line x1="4" y1="18" x2="20" y2="18"></line>
-          </svg>
-          <svg v-else width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
+          <Menu v-if="!isCatalogOpen" :size="22" :stroke-width="2.3" />
+          <X v-else :size="22" :stroke-width="2.3" />
         </button>
 
         <form class="search-bar" @submit.prevent="handleSearch">
@@ -159,15 +172,13 @@ const selectCategory = (categoryName, subcategoryName = '') => {
             @click="clearSearch"
             aria-label="Очистить поиск"
           >
-            ✕
+            <X :size="15" />
           </button>
           <button type="submit" class="search-submit" aria-label="Найти">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
+            <Search :size="19" :stroke-width="2.2" />
           </button>
         </form>
+
       </div>
 
       <!-- 3. Правая часть: Профиль пользователя (или кнопка Вход) + Корзина -->
@@ -176,8 +187,10 @@ const selectCategory = (categoryName, subcategoryName = '') => {
           <div v-if="currentUser" class="user-profile-pill">
             <div class="user-clickable-area" @click="emit('open-account')" title="Открыть личный кабинет">
               <div class="user-avatar" :class="{ wholesale: currentUser.role === 'wholesale' }">
-                {{ currentUser.role === 'wholesale' ? '🏢' : '👤' }}
+                <Building2 v-if="currentUser.role === 'wholesale'" :size="16" color="#f59e0b" />
+                <User v-else :size="16" color="#A3D2F9" />
               </div>
+
               <div class="user-meta">
                 <span class="user-name">{{ currentUser.name }}</span>
                 <span v-if="currentUser.role === 'wholesale'" class="user-badge wholesale">
@@ -198,10 +211,7 @@ const selectCategory = (categoryName, subcategoryName = '') => {
 
 
           <button v-else type="button" class="btn-login" @click="emit('open-auth', 'login')">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-              <circle cx="12" cy="7" r="4"></circle>
-            </svg>
+            <User :size="18" :stroke-width="2.2" />
             <span>Войти</span>
           </button>
         </div>
@@ -212,14 +222,11 @@ const selectCategory = (categoryName, subcategoryName = '') => {
           aria-label="Корзина" 
           @click="closeCatalog(); emit('open-cart')"
         >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="9" cy="21" r="1"></circle>
-            <circle cx="20" cy="21" r="1"></circle>
-            <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
-          </svg>
+          <ShoppingCart :size="20" :stroke-width="2.1" />
           <span class="cart-text">Корзина</span>
           <span v-if="cartCount > 0" class="cart-badge">{{ cartCount }}</span>
         </button>
+
       </div>
 
     </div>
@@ -235,15 +242,17 @@ const selectCategory = (categoryName, subcategoryName = '') => {
     <aside v-if="isCatalogOpen" class="catalog-drawer">
       <div class="drawer-header">
         <h2 class="drawer-title">Каталог товаров</h2>
-        <button type="button" class="drawer-close" @click="closeCatalog">✕</button>
+        <button type="button" class="drawer-close" @click="closeCatalog" aria-label="Закрыть">
+          <X :size="18" />
+        </button>
       </div>
 
       <div class="drawer-body">
         <ul class="category-list">
           <li class="category-item" @click="selectCategory('')">
-            <span class="cat-icon">📋</span>
+            <span class="cat-icon"><LayoutGrid :size="18" /></span>
             <span class="cat-name">Все товары каталога</span>
-            <span class="cat-arrow">›</span>
+            <ChevronRight :size="16" class="cat-arrow" />
           </li>
 
           <li 
@@ -254,11 +263,12 @@ const selectCategory = (categoryName, subcategoryName = '') => {
             @mouseenter="activeCategory = index"
             @click="selectCategory(cat.name)"
           >
-            <span class="cat-icon">{{ cat.icon }}</span>
+            <span class="cat-icon"><CategoryIcon :icon="cat.icon" :size="18" /></span>
             <span class="cat-name">{{ cat.name }}</span>
-            <span class="cat-arrow">›</span>
+            <ChevronRight :size="16" class="cat-arrow" />
           </li>
         </ul>
+
 
         <div class="subcategory-panel" v-if="categories[activeCategory]">
           <h3 class="subcat-title">{{ categories[activeCategory].name }}</h3>
@@ -623,6 +633,9 @@ font-size: 18px;
 font-weight: 700;
 }
 .drawer-close {
+display: inline-flex;
+align-items: center;
+justify-content: center;
 width: 36px;
 height: 36px;
 border-radius: 10px;
@@ -666,6 +679,9 @@ font-weight: 700;
 }
 .cat-icon {
 font-size: 18px;
+display: inline-flex;
+align-items: center;
+justify-content: center;
 }
 .cat-name {
 flex: 1;

@@ -2,6 +2,24 @@
 import { ref, reactive, watch } from 'vue'
 import * as XLSX from 'xlsx'
 import { api } from '../services/api.js'
+import {
+  Building2,
+  User,
+  X,
+  Clock,
+  XCircle,
+  ShoppingBag,
+  ClipboardList,
+  Package,
+  Truck,
+  Store,
+  CheckCircle2,
+  Handshake,
+  FileSpreadsheet,
+  RotateCw
+} from 'lucide-vue-next'
+import { useBackdropClose } from '../composables/useBackdropClose.js'
+
 
 const props = defineProps({
   isOpen: {
@@ -19,6 +37,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'logout', 'repeat-order', 'user-updated'])
+const { onBackdropMouseDown, onBackdropMouseUp } = useBackdropClose(() => emit('close'))
 
 const localUser = ref(props.currentUser ? { ...props.currentUser } : null)
 
@@ -116,14 +135,15 @@ const switchToRetail = async () => {
 
 const getStatusBadge = (status) => {
   const map = {
-    processing: { label: 'В обработке', class: 'status-processing', icon: '⏳' },
-    europost_pending: { label: 'Уточняется доставка Европочтой', class: 'status-europost', icon: '📦' },
-    shipped: { label: 'Отправлено Европочтой', class: 'status-shipped', icon: '🚚' },
-    ready_pickup: { label: 'Готово к самовывозу (ЭКСПОБЕЛ)', class: 'status-ready', icon: '🏪' },
-    completed: { label: 'Выполнено', class: 'status-completed', icon: '✅' }
+    processing: { label: 'В обработке', class: 'status-processing', icon: Clock },
+    europost_pending: { label: 'Уточняется доставка Европочтой', class: 'status-europost', icon: Package },
+    shipped: { label: 'Отправлено Европочтой', class: 'status-shipped', icon: Truck },
+    ready_pickup: { label: 'Готово к самовывозу (ЭКСПОБЕЛ)', class: 'status-ready', icon: Store },
+    completed: { label: 'Выполнено', class: 'status-completed', icon: CheckCircle2 }
   }
   return map[status] || map.processing
 }
+
 
 const formatPrice = (value) => {
   return Number(value).toFixed(2).replace('.', ',')
@@ -193,7 +213,13 @@ const exportOrderToExcel = (order) => {
 
 <template>
   <Transition name="modal-fade">
-    <div v-if="isOpen" class="modal-backdrop" @click.self="emit('close')">
+    <div
+      v-if="isOpen"
+      class="modal-backdrop"
+      @mousedown.self="onBackdropMouseDown"
+      @mouseup.self="onBackdropMouseUp"
+    >
+
       <div class="account-card" role="dialog" aria-modal="true" aria-label="Личный кабинет">
         
                 <div class="account-header">
@@ -204,7 +230,7 @@ const exportOrderToExcel = (order) => {
               <p class="account-subtitle">История заявок и отслеживание статусов</p>
             </div>
           </div>
-          <button type="button" class="close-btn" @click="emit('close')" aria-label="Закрыть">✕</button>
+          <button type="button" class="close-btn" @click="emit('close')" aria-label="Закрыть"><X :size="18" /></button>
         </div>
 
         <div v-if="localUser" class="profile-summary-wrapper">
@@ -305,7 +331,7 @@ const exportOrderToExcel = (order) => {
           </div>
 
           <div v-if="orders.length === 0" class="empty-orders">
-            <div class="empty-icon">📋</div>
+            <div class="empty-icon"><ClipboardList :size="40" color="#94a3b8" /></div>
             <h4>У вас пока нет оформленных заявок</h4>
             <p>Добавьте интересующие модели часов в корзину и оформите заявку — она сразу появится здесь.</p>
             <button type="button" class="btn-go-shop" @click="emit('close')">
@@ -320,25 +346,27 @@ const exportOrderToExcel = (order) => {
                   <span class="order-number">Заявка №{{ order.number }}</span>
                   <span class="order-date">от {{ order.createdAt }}</span>
                 </div>
-                <span class="status-badge" :class="getStatusBadge(order.status).class">
-                  {{ getStatusBadge(order.status).icon }} {{ getStatusBadge(order.status).label }}
-                </span>
+                  <span class="status-badge" :class="getStatusBadge(order.status).class" style="display: inline-flex; align-items: center; gap: 5px;">
+                    <component :is="getStatusBadge(order.status).icon" :size="13" />
+                    <span>{{ getStatusBadge(order.status).label }}</span>
+                  </span>
+
               </div>
 
-              <div class="order-delivery-info">
-                <template v-if="order.delivery.method === 'manager'">
-                  <div class="delivery-line">
-                    <strong>🤝 Доставка и оплата:</strong> Согласование с менеджером (оптовый заказ)
-                  </div>
-                  <div class="delivery-line">
-                    <strong>Контактное лицо:</strong> {{ order.recipient.full_name }} ({{ order.recipient.phone }})
-                  </div>
-                </template>
+            <div class="order-delivery-info">
+              <template v-if="order.delivery.method === 'manager'">
+                <div class="delivery-line">
+                  <strong><Handshake :size="14" /> Доставка и оплата:</strong> Согласование с менеджером (оптовый заказ)
+                </div>
+                <div class="delivery-line">
+                  <strong>Контактное лицо:</strong> {{ order.recipient.full_name }} ({{ order.recipient.phone }})
+                </div>
+              </template>
 
 
                 <template v-else-if="order.delivery.method === 'europost'">
                   <div class="delivery-line">
-                    <strong>📦 Европочта:</strong> г. {{ order.delivery.city }}, {{ order.delivery.office }}
+                    <strong><Package :size="14" /> Европочта:</strong> г. {{ order.delivery.city }}, {{ order.delivery.office }}
                   </div>
                   <div class="delivery-line">
                     <strong>Получатель:</strong> {{ order.recipient.full_name }} ({{ order.recipient.phone }})
@@ -350,7 +378,7 @@ const exportOrderToExcel = (order) => {
 
                 <template v-else>
                   <div class="delivery-line">
-                    <strong>🏪 Самовывоз:</strong> Рынок «ЭКСПОБЕЛ», пав. 218/219, 1 этаж, 4 ряд
+                    <strong><Store :size="14" /> Самовывоз:</strong> Рынок «ЭКСПОБЕЛ», пав. 218/219, 1 этаж, 4 ряд
                   </div>
                   <div class="delivery-line">
                     <strong>Получатель:</strong> {{ order.recipient.full_name }} ({{ order.recipient.phone }})
@@ -386,7 +414,7 @@ const exportOrderToExcel = (order) => {
                     @click="exportOrderToExcel(order)"
                     title="Выгрузить состав заявки в файл Excel (.xlsx)"
                   >
-                    📊 В Excel
+                    <FileSpreadsheet :size="14" /> В Excel
                   </button>
 
                   <button 
@@ -394,7 +422,7 @@ const exportOrderToExcel = (order) => {
                     class="btn-repeat" 
                     @click="emit('repeat-order', order.items); emit('close')"
                   >
-                    ↻ Повторить заявку
+                    <RotateCw :size="13" /> Повторить заявку
                   </button>
                 </div>
 

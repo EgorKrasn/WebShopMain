@@ -2,6 +2,20 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { api, resolveImageUrl } from '../services/api.js'
 import * as XLSX from 'xlsx'
+import {
+  ArrowLeft,
+  X,
+  Building2,
+  Package,
+  Watch,
+  Trash2,
+  AlertTriangle,
+  FileSpreadsheet,
+  ArrowRight,
+  Handshake,
+  Store
+} from 'lucide-vue-next'
+
 
 const props = defineProps({
   isOpen: {
@@ -291,7 +305,10 @@ const exportCartToExcel = () => {
     <aside v-if="isOpen" class="cart-drawer">
       <div class="cart-header">
         <div class="cart-header-left">
-          <button v-if="step === 'checkout'" type="button" class="btn-back-step" @click="step = 'cart'">←</button>
+          <button v-if="step === 'checkout'" type="button" class="btn-back-step" @click="step = 'cart'">
+            <ArrowLeft :size="16" />
+          </button>
+
           <h2 class="cart-title">{{ step === 'cart' ? 'Корзина' : 'Оформление заявки' }}</h2>
           <span v-if="step === 'cart'" class="cart-count-pill">{{ totalCount }} шт.</span>
         </div>
@@ -306,18 +323,27 @@ const exportCartToExcel = () => {
           >
             Очистить
           </button>
-          <button type="button" class="cart-close" @click="emit('close')">✕</button>
+          <button type="button" class="cart-close" @click="emit('close')" aria-label="Закрыть">
+            <X :size="18" />
+          </button>
+
         </div>
       </div>
 
 
       <div class="price-mode-banner" :class="{ wholesale: isWholesale }">
-        <span v-if="isWholesale">🏢 Активен <strong>оптовый прайс</strong> (УНП) • Оплата при получении</span>
-        <span v-else>📦 Доставка <strong>Европочтой</strong> или <strong>Самовывоз</strong> • Оплата при получении</span>
+        <span v-if="isWholesale" style="display: inline-flex; align-items: center; gap: 6px;">
+          <Building2 :size="15" /> Активен <strong>оптовый прайс</strong> (УНП) • Оплата при получении
+        </span>
+        <span v-else style="display: inline-flex; align-items: center; gap: 6px;">
+          <Package :size="15" /> Доставка <strong>Европочтой</strong> или <strong>Самовывоз</strong> • Оплата при получении
+        </span>
       </div>
 
+
       <div v-if="items.length === 0" class="cart-empty">
-        <div class="empty-icon">⌚</div>
+        <div class="empty-icon"><Watch :size="48" :stroke-width="1.5" color="#94a3b8" /></div>
+
         <h3>В корзине пока пусто</h3>
         <p>Выберите наручные, настенные или умные часы в каталоге.</p>
         <button type="button" class="btn-back-catalog" @click="emit('close')">Перейти в каталог</button>
@@ -329,7 +355,8 @@ const exportCartToExcel = () => {
             <li v-for="item in items" :key="item.id" class="cart-item">
               <div class="item-thumb">
                 <img v-if="item.image" :src="resolveImageUrl(item.image)" :alt="item.name" class="item-thumb-img" />
-                <span v-else>{{ item.icon || '⌚' }}</span>
+                <span v-else><Watch :size="24" color="#0f172a" /></span>
+
               </div>
               <div class="item-details">
                 <div class="item-top">
@@ -337,7 +364,10 @@ const exportCartToExcel = () => {
                     <span class="item-sku">Арт. {{ item.sku }}</span>
                     <h4 class="item-name">{{ item.name }}</h4>
                   </div>
-                  <button type="button" class="item-remove" @click="emit('remove-item', item.id)">🗑</button>
+                  <button type="button" class="item-remove" @click="emit('remove-item', item.id)" aria-label="Удалить">
+                    <Trash2 :size="16" />
+                  </button>
+
                 </div>
                 <div class="item-bottom">
                   <div v-if="getMissingWholesaleQty(item) > 0" class="wholesale-min-alert">
@@ -363,8 +393,9 @@ const exportCartToExcel = () => {
           </ul>
         </div>
         <div class="cart-footer">
-          <div v-if="hasUnmetWholesaleMin" class="footer-min-warning">
-            ⚠️ Чтобы оформить оптовую заявку, наберите минимальную партию по всем позициям.
+          <div v-if="hasUnmetWholesaleMin" class="footer-min-warning" style="display: flex; align-items: center; gap: 6px;">
+            <AlertTriangle :size="16" style="flex-shrink: 0;" />
+            <span>Чтобы оформить оптовую заявку, наберите минимальную партию по всем позициям.</span>
           </div>
 
           <div class="summary-row total">
@@ -376,18 +407,25 @@ const exportCartToExcel = () => {
             v-if="isWholesale"
             type="button"
             class="btn-export-smeta"
+            style="display: inline-flex; align-items: center; justify-content: center; gap: 6px;"
             @click="exportCartToExcel"
           >
-            📊 Скачать смету (Excel)
+            <FileSpreadsheet :size="16" />
+            <span>Скачать смету (Excel)</span>
           </button>
 
           <button
             type="button"
             class="btn-checkout"
+            style="display: inline-flex; align-items: center; justify-content: center; gap: 6px;"
             :disabled="hasUnmetWholesaleMin"
             @click="goToCheckout"
           >
-            {{ hasUnmetWholesaleMin ? 'Не набрана мин. оптовая партия' : 'Перейти к оформлению →' }}
+            <span v-if="hasUnmetWholesaleMin">Не набрана мин. оптовая партия</span>
+            <template v-else>
+              <span>Перейти к оформлению</span>
+              <ArrowRight :size="17" />
+            </template>
           </button>
         </div>
 
@@ -399,7 +437,7 @@ const exportCartToExcel = () => {
           
           <!-- Для ЮРЛИЦ: предупредительная табличка вместо выбора доставки -->
           <div v-if="isWholesale" class="wholesale-delivery-notice">
-            <div class="notice-icon">🤝</div>
+            <div class="notice-icon"><Handshake :size="22" color="#0284c7" /></div>
             <div class="notice-content">
               <strong>Условия доставки и оплаты для юрлиц и ИП</strong>
               <p>Способы получения, сроки отгрузки и условия оплаты оптового заказа обсуждаются индивидуально с менеджером после получения заявки.</p>
@@ -413,7 +451,7 @@ const exportCartToExcel = () => {
               <label class="radio-card" :class="{ selected: orderForm.deliveryMethod === 'europost' }">
                 <input type="radio" v-model="orderForm.deliveryMethod" value="europost" class="hidden-radio" />
                 <div class="radio-info">
-                  <span class="radio-title">📦 Европочта (до отделения по РБ)</span>
+                  <span class="radio-title"><Package :size="15" style="vertical-align: -2px; margin-right: 4px;" /> Европочта (до отделения по РБ)</span>
                   <span class="radio-desc">Стоимость уточняется менеджером • Оплата при получении</span>
                 </div>
                 <span class="radio-check">{{ orderForm.deliveryMethod === 'europost' ? '●' : '○' }}</span>
@@ -422,7 +460,7 @@ const exportCartToExcel = () => {
               <label class="radio-card" :class="{ selected: orderForm.deliveryMethod === 'pickup' }">
                 <input type="radio" v-model="orderForm.deliveryMethod" value="pickup" class="hidden-radio" />
                 <div class="radio-info">
-                  <span class="radio-title">🏪 Самовывоз</span>
+                  <span class="radio-title"><Store :size="15" style="vertical-align: -2px; margin-right: 4px;" /> Самовывоз</span>
                   <span class="radio-desc">Рынок «ЭКСПОБЕЛ», пав. 218/219, 1 этаж, 4 ряд • Бесплатно</span>
                 </div>
                 <span class="radio-check">{{ orderForm.deliveryMethod === 'pickup' ? '●' : '○' }}</span>
@@ -432,7 +470,7 @@ const exportCartToExcel = () => {
 
           <!-- Предупреждение в форме только для физлиц при выборе Европочты -->
           <div v-if="isEuropost" class="europost-alert">
-            <div class="alert-icon">⚠️</div>
+            <div class="alert-icon"><AlertTriangle :size="20" color="#d97706" /></div>
             <div class="alert-text">
               <strong>Оплата и выдача через Европочту:</strong>
               <p>Оплата производится при получении посылки в отделении Европочты. Выдача строго по паспорту.</p>
@@ -516,7 +554,7 @@ const exportCartToExcel = () => {
 
       <div v-if="isWarningModalOpen" class="warning-overlay">
         <div class="warning-dialog">
-          <div class="warning-badge">📦 Условия оплаты Европочтой</div>
+          <div class="warning-badge"><Package :size="14" style="vertical-align: -2px; margin-right: 4px;" /> Условия оплаты Европочтой</div>
           <h3 class="warning-title">Подтверждение способа оплаты</h3>
           <p class="warning-body">
             Обратите внимание: <strong>оплата заказа осуществляется через Европочту</strong> при получении посылки в выбранном отделении.
@@ -592,6 +630,9 @@ const exportCartToExcel = () => {
   font-size: 16px;
   font-weight: 700;
   cursor: pointer;
+  display: inline-flex; 
+  align-items: center; 
+  justify-content: center;
 }
 
 .btn-back-step:hover {
@@ -622,6 +663,9 @@ const exportCartToExcel = () => {
   color: #ffffff;
   font-size: 16px;
   cursor: pointer;
+  display: inline-flex; 
+  align-items: center; 
+  justify-content: center;
 }
 
 .cart-close:hover {
