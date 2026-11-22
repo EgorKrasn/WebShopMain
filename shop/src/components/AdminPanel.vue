@@ -1,5 +1,6 @@
 <script setup>
 import { ref, reactive, computed, onMounted, markRaw } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { api, resolveImageUrl } from '../services/api.js'
 import {
@@ -30,6 +31,8 @@ import CategoryIcon from './CategoryIcon.vue'
 import { useBackdropClose } from '../composables/useBackdropClose.js'
 
 
+
+
 // Доступные векторные иконки для выбора при создании/редактировании категории
 const categoryIconOptions = [
   { key: 'watch', label: 'Наручные' },
@@ -45,11 +48,26 @@ const categoryIconOptions = [
 
 const emit = defineEmits(['close'])
 
+const route = useRoute()
+const router = useRouter()
+
+const activeTab = computed({
+  get() {
+    return route.params.section ? String(route.params.section) : 'menu'
+  },
+  set(newSection) {
+    if (!newSection || newSection === 'menu') {
+      router.push({ name: 'admin' })
+    } else {
+      router.push({ name: 'admin', params: { section: newSection } })
+    }
+  }
+})
+
+
 const categoryBackdrop = useBackdropClose(() => { isCategoryFormOpen.value = false })
 const productBackdrop = useBackdropClose(() => { isProductFormOpen.value = false })
 
-
-const activeTab = ref('menu') // 'menu' | 'wholesale' | 'orders' | 'products' | 'categories'
 
 const isLoading = ref(false)
 const actionMessage = ref('')

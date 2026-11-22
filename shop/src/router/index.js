@@ -2,6 +2,15 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 const EmptyRouteView = { render: () => null }
 
+const ALLOWED_ADMIN_SECTIONS = [
+	'wholesale',
+	'orders',
+	'archive',
+	'products',
+	'categories',
+	'backup',
+]
+
 const router = createRouter({
 	history: createWebHistory(),
 	routes: [
@@ -21,7 +30,7 @@ const router = createRouter({
 			component: EmptyRouteView,
 		},
 		{
-			path: '/admin',
+			path: '/admin/:section?',
 			name: 'admin',
 			component: EmptyRouteView,
 			meta: { requiresAuth: true },
@@ -40,6 +49,13 @@ router.beforeEach(to => {
 			return { name: 'home' }
 		}
 	}
+
+	if (to.name === 'admin' && to.params.section) {
+		if (!ALLOWED_ADMIN_SECTIONS.includes(String(to.params.section))) {
+			return { name: 'admin' }
+		}
+	}
+
 	return true
 })
 
