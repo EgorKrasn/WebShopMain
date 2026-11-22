@@ -742,24 +742,24 @@ transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 transform: translateX(-100%);
 }
 @media (max-width: 960px) {
-.auth-buttons {
-display: none;
-}
-.drawer-body {
-flex-direction: column;
-}
-.category-list {
-width: 100%;
-border-right: none;
-border-bottom: 1px solid #e2e8f0;
-}
-.drawer-mobile-auth {
-display: grid;
-grid-template-columns: 1fr;
-padding: 16px 20px;
-margin-top: auto;
-background-color: #0f172a;
-}
+
+  .auth-buttons,
+  .btn-cart,
+  .drawer-mobile-auth {
+    display: none !important;
+  }
+
+    .drawer-body {
+    flex-direction: column;
+  }
+
+  .category-list {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+
 .full-btn {
 width: 100%;
 }
@@ -796,43 +796,58 @@ padding: 0 14px;
 .user-clickable-area { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
 
 @media (max-width: 680px) {
-.container {
-padding: 10px 14px;
+  .container {
+    padding: 10px 12px;
+  }
+
+  .header-inner {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .logo-slot {
+    justify-content: center;
+  }
+
+  .logo-placeholder {
+    width: 34px;
+    height: 34px;
+    font-size: 9.5px;
+    border-radius: 8px;
+  }
+
+  .brand-name {
+    font-size: 18px;
+  }
+
+  .header-actions {
+    display: none;
+  }
+
+  .search-group {
+    width: 100%;
+    max-width: 100%;
+    gap: 8px;
+  }
+
+  .wb-catalog-btn {
+    width: 42px;
+    height: 42px;
+    border-radius: 11px;
+  }
+
+  .search-bar {
+    height: 42px;
+    border-radius: 12px;
+    padding-left: 12px;
+  }
+
+  .search-input {
+    font-size: 14px;
+  }
 }
-.header-inner {
-flex-wrap: wrap;
-row-gap: 10px;
-column-gap: 10px;
-}
-.logo-slot {
-order: 1;
-}
-.header-actions {
-order: 2;
-margin-left: auto;
-}
-.search-group {
-order: 3;
-flex: 0 0 100%;
-width: 100%;
-max-width: 100%;
-gap: 8px;
-}
-.wb-catalog-btn {
-width: 42px;
-height: 42px;
-}
-.search-bar {
-height: 42px;
-padding-left: 12px;
-}
-.brand-name {
-font-size: 17px;
-}
-.cart-text {
-display: none;
-}
-}
+
 
 @media (min-width: 961px) {
   .wb-catalog-btn {

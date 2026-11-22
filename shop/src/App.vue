@@ -15,6 +15,8 @@ import HomeView from './views/HomeView.vue'
 import CategorySidebar from './components/CategorySidebar.vue'
 import { ArrowLeft, Settings, CheckCircle2 } from 'lucide-vue-next'
 import { useBackdropClose } from './composables/useBackdropClose.js'
+import MobileBottomNav from './components/MobileBottomNav.vue'
+
 
 
 
@@ -553,6 +555,21 @@ watch(searchQuery, (newVal) => {
       @open-cart="isCartOpen = true"
     />
 
+    <MobileBottomNav
+      v-if="!isAdminPage"
+      :cart-count="totalCartCount"
+      :current-user="currentUser"
+      :is-cart-open="isCartOpen"
+      :is-account-open="isAccountOpen"
+      :is-auth-open="isAuthModalOpen"
+      @go-home="goToHome"
+      @go-catalog="goToCatalog"
+      @open-cart="isCartOpen = true"
+      @open-account="openAccountModal"
+      @open-auth="openAuth"
+    />
+
+
         <!-- Всплывающее окно об успешной отправке заявки -->
     <Transition name="fade">
       <div
@@ -744,6 +761,12 @@ body {
   .shop-shell {
     padding: 0;
     display: block;
+  }
+}
+
+@media (max-width: 960px) {
+  .app-layout {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
   }
 }
 
