@@ -1,10 +1,17 @@
+import io
+import json
 import os
 import re
+import shutil
 import uuid
+import zipfile
+from datetime import datetime
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
+
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -1018,3 +1025,211 @@ def admin_delete_category(
     db.delete(cat)
     db.commit()
     return {"ok": True}
+
+
+# ==========================================
+# 11. РЕЗЕРВНОЕ КОПИРОВАНИЕ И МИГРАЦИЯ (.ZIP)
+# ==========================================
+
+MAX_BACKUP_SIZE_BYTES = 150 * 1024 * 1024  # 150 МБ
+
+
+@app.get("/api/admin/backup/export")
+def admin_export_backup(
+    admin: models.User = Depends(security.get_current_admin_required),
+    db: Session = Depends(get_db)
+):
+    categories = (
+        db.query(models.Category)
+        .order_by(models.Category.sort_order.asc(), models.Category.id.asc())
+        .all()
+    )
+    products = db.query(models.Product).order_by(models.Product.id.asc()).all()
+
+    backup_payload = {
+        "version": 1,
+        "exported_at": datetime.now().isoformat(),
+        "categories": [
+            {
+                "id": c.id,
+                "name": c.name,
+                "icon": c.icon,
+                "subcategories": c.subcategories or [],
+                "sort_order": c.sort_order or 0,
+            }
+            for c in categories
+        ],
+        "products": [
+            {
+                "id": p.id,
+                "sku": p.sku,
+                "group_id": p.group_id,
+                "color_name": p.color_name,
+                "category": p.category,
+                "subcategory": p.subcategory,
+                "name": p.name,
+                "specs": p.specs,
+                "description": p.description,
+                "mechanism": p.mechanism,
+                "case_material": p.case_material,
+                "warranty": p.warranty,
+                "attributes": p.attributes,
+                "icon": p.icon,
+                "image": p.image,
+                "retail_price": p.retail_price,
+                "wholesale_price": p.wholesale_price,
+                "min_wholesale_qty": p.min_wholesale_qty,
+                "stock": p.stock,
+            }
+            for p in products
+        ],
+    }
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            "backup_data.json",
+            json.dumps(backup_payload, ensure_ascii=False, indent=2)
+        )
+
+        # Упаковываем все файлы из папки uploads/
+        if os.path.exists(UPLOAD_DIR):
+            for root, _, files in os.walk(UPLOAD_DIR):
+                for file_name in files:
+                    full_path = os.path.join(root, file_name)
+                    rel_path = os.path.relpath(full_path, UPLOAD_DIR).replace("\\", "/")
+                    zf.write(full_path, arcname=f"uploads/{rel_path}")
+
+    zip_buffer.seek(0)
+    date_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    filename = f"sandrintime-backup-{date_stamp}.zip"
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
+
+@app.post("/api/admin/backup/import")
+async def admin_import_backup(
+    file: UploadFile = File(...),
+    admin: models.User = Depends(security.get_current_admin_required),
+    db: Session = Depends(get_db)
+):
+    if not (file.filename or "").lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Загрузите файл резервной копии в формате .zip")
+
+    content = await file.read()
+    if len(content) > MAX_BACKUP_SIZE_BYTES:
+        raise HTTPException(status_code=400, detail="Размер архива не должен превышать 150 МБ")
+
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(content))
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="Файл повреждён или не является корректным ZIP-архивом")
+
+    with zf:
+        if "backup_data.json" not in zf.namelist():
+            raise HTTPException(status_code=400, detail="В архиве отсутствует файл данных backup_data.json")
+
+        try:
+            raw_json = zf.read("backup_data.json").decode("utf-8")
+            backup_data = json.loads(raw_json)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Не удалось прочитать JSON-данные из архива")
+
+        categories_data = backup_data.get("categories")
+        products_data = backup_data.get("products")
+
+        if not isinstance(categories_data, list) or not isinstance(products_data, list):
+            raise HTTPException(status_code=400, detail="Некорректная структура разделов или товаров в резервной копии")
+
+        # 1. Проверяем безопасность путей внутри uploads/ (защита от Zip Slip)
+        upload_entries = []
+        abs_upload_dir = os.path.abspath(UPLOAD_DIR)
+        for member in zf.infolist():
+            if member.is_dir():
+                continue
+            norm_name = member.filename.replace("\\", "/")
+            if norm_name.startswith("uploads/"):
+                rel_subpath = norm_name[len("uploads/"):]
+                if not rel_subpath or rel_subpath.startswith("/") or ".." in rel_subpath.split("/"):
+                    raise HTTPException(status_code=400, detail="Обнаружен небезопасный путь внутри архива")
+                target_path = os.path.abspath(os.path.join(abs_upload_dir, rel_subpath))
+                if not target_path.startswith(abs_upload_dir + os.sep):
+                    raise HTTPException(status_code=400, detail="Недопустимый путь файла в архиве")
+                upload_entries.append((member, target_path))
+
+        # 2. Полная замена категорий и товаров в БД в одной транзакции
+        try:
+            db.query(models.Product).delete()
+            db.query(models.Category).delete()
+            db.flush()
+
+            for c in categories_data:
+                db.add(
+                    models.Category(
+                        id=c.get("id"),
+                        name=str(c["name"]).strip(),
+                        icon=str(c.get("icon") or "watch").strip(),
+                        subcategories=c.get("subcategories") if isinstance(c.get("subcategories"), list) else [],
+                        sort_order=int(c.get("sort_order") or 0),
+                    )
+                )
+
+            for p in products_data:
+                db.add(
+                    models.Product(
+                        id=p.get("id"),
+                        sku=str(p["sku"]).strip(),
+                        group_id=(p.get("group_id") or "").strip() or None,
+                        color_name=(p.get("color_name") or "").strip() or None,
+                        category=str(p["category"]).strip(),
+                        subcategory=(p.get("subcategory") or "").strip() or None,
+                        name=str(p["name"]).strip(),
+                        specs=str(p.get("specs") or "").strip(),
+                        description=p.get("description"),
+                        mechanism=p.get("mechanism"),
+                        case_material=p.get("case_material"),
+                        warranty=p.get("warranty") or "12 месяцев",
+                        attributes=p.get("attributes"),
+                        icon=str(p.get("icon") or "⌚").strip(),
+                        image=(p.get("image") or "").strip() or None,
+                        retail_price=float(p.get("retail_price") or 0.0),
+                        wholesale_price=float(p.get("wholesale_price") or 0.0),
+                        min_wholesale_qty=int(p.get("min_wholesale_qty") or 5),
+                        stock=int(p.get("stock") or 0),
+                    )
+                )
+
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=f"Ошибка восстановления базы данных: {str(e)}")
+
+        # 3. Полностью перезаписываем папку uploads/ фотографиями из архива
+        if os.path.exists(abs_upload_dir):
+            for entry_name in os.listdir(abs_upload_dir):
+                entry_path = os.path.join(abs_upload_dir, entry_name)
+                if os.path.isdir(entry_path):
+                    shutil.rmtree(entry_path)
+                else:
+                    os.remove(entry_path)
+        else:
+            os.makedirs(abs_upload_dir, exist_ok=True)
+
+        for member, target_path in upload_entries:
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            with zf.open(member) as src, open(target_path, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+
+    return {
+        "ok": True,
+        "categoriesCount": len(categories_data),
+        "productsCount": len(products_data),
+        "filesCount": len(upload_entries),
+    }

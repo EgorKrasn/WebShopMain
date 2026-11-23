@@ -167,4 +167,47 @@ export const api = {
 			method: 'DELETE',
 		})
 	},
+	async adminExportBackup() {
+		const token = localStorage.getItem('sandrintime_token')
+		const response = await fetch(`${API_URL}/admin/backup/export`, {
+			method: 'GET',
+			headers: token ? { Authorization: `Bearer ${token}` } : {},
+		})
+
+		if (!response.ok) {
+			const data = await response.json().catch(() => ({}))
+			throw new Error(data.detail || 'Не удалось сформировать резервную копию')
+		}
+
+		const blob = await response.blob()
+		const disposition = response.headers.get('Content-Disposition') || ''
+		const match = disposition.match(/filename="?([^"]+)"?/i)
+		const filename =
+			match?.[1] ||
+			`sandrintime-backup-${new Date().toISOString().slice(0, 10)}.zip`
+
+		const url = window.URL.createObjectURL(blob)
+		const link = document.createElement('a')
+		link.href = url
+		link.download = filename
+		document.body.appendChild(link)
+		link.click()
+		link.remove()
+		window.URL.revokeObjectURL(url)
+	},
+	async adminImportBackup(file) {
+		const formData = new FormData()
+		formData.append('file', file)
+		const token = localStorage.getItem('sandrintime_token')
+		const response = await fetch(`${API_URL}/admin/backup/import`, {
+			method: 'POST',
+			headers: token ? { Authorization: `Bearer ${token}` } : {},
+			body: formData,
+		})
+		const data = await response.json().catch(() => ({}))
+		if (!response.ok) {
+			throw new Error(data.detail || 'Ошибка восстановления из резервной копии')
+		}
+		return data
+	},
 }

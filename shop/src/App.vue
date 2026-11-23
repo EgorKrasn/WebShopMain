@@ -470,6 +470,7 @@ watch(searchQuery, (newVal) => {
         v-if="isAdminPage && isAdmin"
         @close="closeAdminPanel"
         @categories-updated="loadCategories"
+        @catalog-restored="loadInitialData"
       />
 
       <div v-else class="shop-shell">
