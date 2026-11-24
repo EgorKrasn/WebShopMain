@@ -1,5 +1,6 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import * as XLSX from 'xlsx'
 import { api, resolveImageUrl } from '../services/api.js'
 import {
@@ -8,8 +9,12 @@ import {
   Search,
   X,
   ShoppingCart,
-  Watch
+  Watch,
+  ChevronLeft,
+  ChevronRight,
+  ArrowUp
 } from 'lucide-vue-next'
+
 
 
 
@@ -163,6 +168,119 @@ const hasActiveFilters = computed(() => {
   return Boolean(props.selectedCategory || props.selectedSubcategory || props.searchQuery.trim())
 })
 
+// --- ПАГИНАЦИЯ И СИНХРОНИЗАЦИЯ С URL (?page=2) ---
+const route = useRoute()
+const router = useRouter()
+const ITEMS_PER_PAGE = 24 // Кратно 4 колонкам на ПК и 2 на смартфоне
+
+const currentPage = computed(() => {
+  const raw = Number(route.query.page)
+  return Number.isInteger(raw) && raw > 0 ? raw : 1
+})
+
+const totalPages = computed(() => {
+  return Math.max(1, Math.ceil(filteredProducts.value.length / ITEMS_PER_PAGE))
+})
+
+// Если в URL передали ?page=99, а страниц всего 3 — берём безопасную страницу
+const safePage = computed(() => {
+  return Math.min(currentPage.value, totalPages.value)
+})
+
+const paginatedProducts = computed(() => {
+  const start = (safePage.value - 1) * ITEMS_PER_PAGE
+  return filteredProducts.value.slice(start, start + ITEMS_PER_PAGE)
+})
+
+// Формируем список номеров страниц с многоточием (например: [1, '...', 4, 5, 6, '...', 12])
+const visiblePages = computed(() => {
+  const total = totalPages.value
+  const current = safePage.value
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => i + 1)
+  }
+
+  const pages = [1]
+  if (current > 3) pages.push('...')
+
+  const start = Math.max(2, current - 1)
+  const end = Math.min(total - 1, current + 1)
+  for (let i = start; i <= end; i++) {
+    pages.push(i)
+  }
+
+  if (current < total - 2) pages.push('...')
+  pages.push(total)
+  return pages
+})
+
+const goToPage = (page, shouldScroll = true) => {
+  const target = Math.min(Math.max(1, Number(page) || 1), totalPages.value)
+  const nextQuery = { ...route.query }
+
+  if (target === 1) {
+    delete nextQuery.page // Для 1-й страницы держим чистый URL без ?page=1
+  } else {
+    nextQuery.page = String(target)
+  }
+
+  router.push({ query: nextQuery })
+
+  if (shouldScroll) {
+    const el = document.getElementById('catalog')
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }
+}
+
+// При изменении категории, подкатегории или поискового запроса сбрасываемся на 1-ю страницу
+watch(
+  [() => props.selectedCategory, () => props.selectedSubcategory, () => props.searchQuery],
+  () => {
+    if (route.query.page) {
+      const nextQuery = { ...route.query }
+      delete nextQuery.page
+      router.replace({ query: nextQuery })
+    }
+  }
+)
+
+// Если товаров стало меньше и текущая ?page=N оказалась за пределами totalPages — корректируем URL
+watch([totalPages, currentPage], ([total, curr]) => {
+  if (curr > total && route.query.page) {
+    const nextQuery = { ...route.query }
+    if (total <= 1) {
+      delete nextQuery.page
+    } else {
+      nextQuery.page = String(total)
+    }
+    router.replace({ query: nextQuery })
+  }
+})
+
+// --- КНОПКА «НАВЕРХ» ---
+const showScrollTop = ref(false)
+
+const handleWindowScroll = () => {
+  showScrollTop.value = window.scrollY > 450
+}
+
+const scrollToTop = () => {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+onMounted(() => {
+  window.addEventListener('scroll', handleWindowScroll, { passive: true })
+})
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', handleWindowScroll)
+})
+
+
 
 const formatPrice = (value) => {
   return Number(value).toFixed(2).replace('.', ',')
@@ -259,7 +377,6 @@ const exportPriceListToExcel = () => {
               <span>Скачать прайс (Excel)</span>
             </button>
           </div>
-
         </div>
 
         <!-- Строка поиска для ПК -->
@@ -283,10 +400,8 @@ const exportPriceListToExcel = () => {
               <X :size="15" />
             </button>
           </div>
-
         </div>
       </div>
-
 
       <!-- Панель активных фильтров -->
       <div v-if="hasActiveFilters" class="active-filters-bar">
@@ -313,7 +428,6 @@ const exportPriceListToExcel = () => {
           <Search :size="44" :stroke-width="1.6" color="#64748b" />
         </div>
         <h2>По вашему запросу ничего не найдено</h2>
-
         <p>Попробуйте изменить поисковый запрос или сбросить выбранную категорию.</p>
         <button type="button" class="btn-reset-main" @click="emit('reset-filters')">
           Показать все часы
@@ -323,12 +437,11 @@ const exportPriceListToExcel = () => {
       <!-- Адаптивная сетка карточек -->
       <div v-else class="products-grid">
         <article
-          v-for="product in filteredProducts"
+          v-for="product in paginatedProducts"
           :key="product.id"
           class="product-card"
           :class="{ 'out-of-stock': (product.stock ?? 0) <= 0 }"
         >
-          
           <!-- Клик по фото открывает подробную карточку -->
           <div class="image-placeholder" @click="emit('select-product', product)">
             <span class="sku-badge">Арт. {{ product.sku }}</span>
@@ -348,14 +461,10 @@ const exportPriceListToExcel = () => {
               <span class="placeholder-text">Фото товара</span>
               <span class="placeholder-hint">400 × 400 px</span>
             </div>
-
-
-            
           </div>
 
           <!-- Информация о товаре -->
           <div class="card-body">
-            <!-- Клик по названию тоже открывает подробную карточку -->
             <h2 class="product-title" @click="emit('select-product', product)">
               {{ product.name }}
             </h2>
@@ -363,18 +472,16 @@ const exportPriceListToExcel = () => {
 
             <!-- Блок цен (розница + опт) -->
             <div class="price-box">
-            <template v-if="userRole === 'wholesale'">
-              <div class="price-wholesale">{{ formatPrice(product.wholesalePrice) }} BYN</div>
-              <div class="price-retail-sub">Розница: {{ formatPrice(product.retailPrice) }} BYN</div>
-            </template>
-            <template v-else>
-              <div class="price-retail">{{ formatPrice(product.retailPrice) }} BYN</div>
-            </template>
-
+              <template v-if="userRole === 'wholesale'">
+                <div class="price-wholesale">{{ formatPrice(product.wholesalePrice) }} BYN</div>
+                <div class="price-retail-sub">Розница: {{ formatPrice(product.retailPrice) }} BYN</div>
+              </template>
+              <template v-else>
+                <div class="price-retail">{{ formatPrice(product.retailPrice) }} BYN</div>
+              </template>
             </div>
 
-            <!-- Кнопка добавления в корзину -->
-            <!-- Кнопка добавления или счётчик количества (если товар уже в корзине) -->
+            <!-- Счётчик количества (если товар уже в корзине) или кнопка «В корзину» -->
             <div v-if="getItemQtyInCart(cartItems, product.id) > 0" class="catalog-qty-control">
               <button
                 type="button"
@@ -416,19 +523,85 @@ const exportPriceListToExcel = () => {
                 <ShoppingCart :size="17" :stroke-width="2.2" />
                 <span>В корзину</span>
               </template>
-
             </button>
-
-
-
           </div>
-
         </article>
       </div>
 
+      <!-- Панель пагинации -->
+      <nav
+        v-if="filteredProducts.length > ITEMS_PER_PAGE"
+        class="pagination-bar"
+        aria-label="Навигация по страницам каталога"
+      >
+        <div class="pagination-info">
+          Показано
+          <strong>
+            {{ (safePage - 1) * ITEMS_PER_PAGE + 1 }}–{{ Math.min(safePage * ITEMS_PER_PAGE, filteredProducts.length) }}
+          </strong>
+          из <strong>{{ filteredProducts.length }}</strong>
+        </div>
+
+        <div class="pagination-controls">
+          <button
+            type="button"
+            class="page-btn page-nav-btn"
+            :disabled="safePage <= 1"
+            aria-label="Предыдущая страница"
+            @click="goToPage(safePage - 1)"
+          >
+            <ChevronLeft :size="18" />
+            <span class="nav-btn-label">Назад</span>
+          </button>
+
+          <template v-for="(item, idx) in visiblePages" :key="idx">
+            <span v-if="item === '...'" class="page-ellipsis">…</span>
+            <button
+              v-else
+              type="button"
+              class="page-btn"
+              :class="{ active: item === safePage }"
+              @click="goToPage(item)"
+            >
+              {{ item }}
+            </button>
+          </template>
+
+          <button
+            type="button"
+            class="page-btn page-nav-btn"
+            :disabled="safePage >= totalPages"
+            aria-label="Следующая страница"
+            @click="goToPage(safePage + 1)"
+          >
+            <span class="nav-btn-label">Вперёд</span>
+            <ChevronRight :size="18" />
+          </button>
+        </div>
+      </nav>
+
     </div>
+
+    <!-- Плавающая кнопка «Наверх» -->
+    <Teleport to="body">
+      <Transition name="fade-up">
+        <button
+          v-if="showScrollTop"
+          type="button"
+          class="sandrin-scroll-top-btn"
+          aria-label="Прокрутить наверх"
+          title="Наверх"
+          @click="scrollToTop"
+        >
+          <ArrowUp :size="20" :stroke-width="2.4" />
+          <span class="scroll-top-text">Наверх</span>
+        </button>
+      </Transition>
+    </Teleport>
+
   </section>
 </template>
+
 
 
 
@@ -1158,4 +1331,163 @@ const exportPriceListToExcel = () => {
   }
 }
 
+
+
+
+</style>
+
+<style>
+/* --- ПАГИНАЦИЯ КАТАЛОГА --- */
+.pagination-bar {
+  margin-top: 28px;
+  padding: 16px 20px;
+  background-color: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(8px);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.pagination-info {
+  font-size: 13px;
+  color: #475569;
+}
+
+.pagination-info strong {
+  color: #0f172a;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.page-btn {
+  min-width: 38px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1.5px solid #cbd5e1;
+  background-color: #ffffff;
+  color: #0f172a;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: all 0.16s ease;
+}
+
+.page-btn:hover:not(:disabled) {
+  border-color: #0f172a;
+  background-color: #f1f5f9;
+}
+
+.page-btn.active {
+  background-color: #0f172a;
+  border-color: #0f172a;
+  color: #A3D2F9;
+}
+
+.page-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.page-ellipsis {
+  padding: 0 4px;
+  color: #64748b;
+  font-weight: 700;
+  user-select: none;
+}
+
+@media (max-width: 680px) {
+  .pagination-bar {
+    flex-direction: column;
+    align-items: center;
+    padding: 14px 12px;
+    margin-top: 20px;
+  }
+
+  .nav-btn-label {
+    display: none;
+  }
+
+  .page-btn {
+    min-width: 34px;
+    height: 34px;
+    padding: 0 8px;
+    font-size: 13px;
+  }
+}
+
+/* --- КНОПКА «НАВЕРХ» --- */
+.sandrin-scroll-top-btn {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  z-index: 999;
+  height: 46px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(163, 210, 249, 0.55);
+  background-color: #0f172a;
+  color: #A3D2F9;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  cursor: pointer;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.32);
+  transition: transform 0.18s ease, background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.sandrin-scroll-top-btn:hover {
+  background-color: #A3D2F9;
+  color: #0f172a;
+  border-color: #0f172a;
+  transform: translateY(-3px);
+}
+
+.sandrin-scroll-top-btn:active {
+  transform: scale(0.96);
+}
+
+.fade-up-enter-active,
+.fade-up-leave-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.fade-up-enter-from,
+.fade-up-leave-to {
+  opacity: 0;
+  transform: translateY(14px);
+}
+
+@media (max-width: 960px) {
+  .sandrin-scroll-top-btn {
+    right: 16px;
+    bottom: calc(78px + env(safe-area-inset-bottom, 0px));
+    width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+
+  .sandrin-scroll-top-btn .scroll-top-text {
+    display: none;
+  }
+}
 </style>

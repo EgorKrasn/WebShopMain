@@ -25,6 +25,7 @@ import {
   Trash2,
   Save,
   Pencil,
+  Copy,
   Upload,
   X,
   HardDriveDownload,
@@ -32,6 +33,7 @@ import {
   AlertTriangle,
   FileArchive
 } from 'lucide-vue-next'
+
 
 
 import CategoryIcon from './CategoryIcon.vue'
@@ -481,6 +483,8 @@ const saveQuickProductRow = async (productId) => {
 }
 
 const openCreateProductModal = () => {
+  isCloningProduct.value = false
+
   editingProductId.value = null
   Object.assign(productForm, {
     sku: '',
@@ -507,6 +511,8 @@ const openCreateProductModal = () => {
 }
 
 const openEditProductModal = (product) => {
+  isCloningProduct.value = false
+
   editingProductId.value = product.id
   const existingAttrs =
     Array.isArray(product.attributes) && product.attributes.length > 0
@@ -536,6 +542,55 @@ const openEditProductModal = (product) => {
   })
   isProductFormOpen.value = true
 }
+
+const isCloningProduct = ref(false)
+
+const generateUniqueCopySku = (baseSku) => {
+  const cleanBase = String(baseSku || 'ST-NEW').trim()
+  const existingSkus = new Set(allProducts.value.map((p) => p.sku.toLowerCase()))
+
+  let candidate = `${cleanBase}-COPY`
+  let counter = 2
+  while (existingSkus.has(candidate.toLowerCase())) {
+    candidate = `${cleanBase}-COPY-${counter}`
+    counter++
+  }
+  return candidate
+}
+
+const openDuplicateProductModal = (product) => {
+  editingProductId.value = null // null означает создание НОВОГО товара при сохранении
+  isCloningProduct.value = true
+
+  const existingAttrs =
+    Array.isArray(product.attributes) && product.attributes.length > 0
+      ? product.attributes.map((a) => ({ label: a.label, value: a.value }))
+      : [
+          { label: 'Механизм', value: product.mechanism || '' },
+          { label: 'Материал', value: product.caseMaterial || '' },
+          { label: 'Гарантия', value: product.warranty || '12 месяцев' }
+        ]
+
+  Object.assign(productForm, {
+    sku: generateUniqueCopySku(product.sku),
+    groupId: product.groupId || '',
+    colorName: product.colorName || '',
+    category: product.category || 'Наручные часы',
+    subcategory: product.subcategory || '',
+    name: product.name ? `${product.name} (копия)` : '',
+    specs: product.specs || '',
+    description: product.description || '',
+    image: product.image || '',
+    icon: product.icon || '⌚',
+    retailPrice: product.retailPrice || 0,
+    wholesalePrice: product.wholesalePrice || 0,
+    minWholesaleQty: product.minWholesaleQty || 5,
+    stock: product.stock ?? 0,
+    attributes: existingAttrs
+  })
+  isProductFormOpen.value = true
+}
+
 
 const addAttributeRow = () => {
   productForm.attributes.push({ label: '', value: '' })
@@ -1418,6 +1473,15 @@ const handleImportBackupFile = async (event) => {
                   >
                     <Pencil :size="15" />
                   </button>
+
+                  <button
+                    type="button"
+                    class="btn-icon copy"
+                    title="Дублировать карточку товара"
+                    @click="openDuplicateProductModal(p)"
+                  >
+                    <Copy :size="15" />
+                  </button>
                   <button
                     type="button"
                     class="btn-icon del"
@@ -1426,6 +1490,9 @@ const handleImportBackupFile = async (event) => {
                   >
                     <Trash2 :size="15" />
                   </button>
+
+
+                  
 
                 </div>
               </td>
@@ -1573,9 +1640,18 @@ const handleImportBackupFile = async (event) => {
           @mouseup.self="categoryBackdrop.onBackdropMouseUp">
       <form class="product-editor-modal" @submit.prevent="submitCategoryForm">
         <div class="editor-head">
-          <h3>{{ editingCategoryId ? 'Редактирование категории' : 'Новая категория каталога' }}</h3>
-          <button type="button" class="close-editor" @click="isCategoryFormOpen = false">✕</button>
+          <h3>
+            {{
+              editingProductId
+                ? 'Редактирование товара'
+                : isCloningProduct
+                  ? 'Создание копии товара'
+                  : 'Новый товар в каталог'
+            }}
+          </h3>
+          <button type="button" class="close-editor" @click="isProductFormOpen = false">✕</button>
         </div>
+
 
 
         <div class="editor-body">
@@ -2209,6 +2285,19 @@ cursor: pointer;
   border-color: #0284c7;
   color: #ffffff;
 }
+
+.btn-icon.copy {
+  background-color: #f5f3ff;
+  border-color: #c4b5fd;
+  color: #7c3aed;
+}
+
+.btn-icon.copy:hover {
+  background-color: #7c3aed;
+  border-color: #7c3aed;
+  color: #ffffff;
+}
+
 
 .btn-icon.del {
   background-color: #fef2f2;
