@@ -445,6 +445,13 @@ const exportPriceListToExcel = () => {
           <!-- Клик по фото открывает подробную карточку -->
           <div class="image-placeholder" @click="emit('select-product', product)">
             <span class="sku-badge">Арт. {{ product.sku }}</span>
+            <span
+              v-if="product.discountPercent > 0 || product.promoLabel"
+              class="promo-badge"
+            >
+              {{ product.promoLabel || `-${product.discountPercent}%` }}
+            </span>
+
             <span class="category-tag">{{ product.category }}</span>
             
             <img 
@@ -470,16 +477,33 @@ const exportPriceListToExcel = () => {
             </h2>
             <p class="product-specs">{{ product.specs }}</p>
 
-            <!-- Блок цен (розница + опт) -->
+            <!-- Блок цен (розница + опт + старая цена) -->
             <div class="price-box">
               <template v-if="userRole === 'wholesale'">
-                <div class="price-wholesale">{{ formatPrice(product.wholesalePrice) }} BYN</div>
+                <div class="price-line-row">
+                  <div class="price-wholesale">{{ formatPrice(product.wholesalePrice) }} BYN</div>
+                  <span
+                    v-if="product.oldWholesalePrice && product.oldWholesalePrice > product.wholesalePrice"
+                    class="old-price-strike"
+                  >
+                    {{ formatPrice(product.oldWholesalePrice) }} BYN
+                  </span>
+                </div>
                 <div class="price-retail-sub">Розница: {{ formatPrice(product.retailPrice) }} BYN</div>
               </template>
               <template v-else>
-                <div class="price-retail">{{ formatPrice(product.retailPrice) }} BYN</div>
+                <div class="price-line-row">
+                  <div class="price-retail">{{ formatPrice(product.retailPrice) }} BYN</div>
+                  <span
+                    v-if="product.oldRetailPrice && product.oldRetailPrice > product.retailPrice"
+                    class="old-price-strike"
+                  >
+                    {{ formatPrice(product.oldRetailPrice) }} BYN
+                  </span>
+                </div>
               </template>
             </div>
+
 
             <!-- Счётчик количества (если товар уже в корзине) или кнопка «В корзину» -->
             <div v-if="getItemQtyInCart(cartItems, product.id) > 0" class="catalog-qty-control">
@@ -1490,4 +1514,47 @@ const exportPriceListToExcel = () => {
     display: none;
   }
 }
+
+.promo-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 7px;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 10px rgba(220, 38, 38, 0.3);
+}
+
+.price-line-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.old-price-strike {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-decoration: line-through;
+}
+
+@media (max-width: 680px) {
+  .promo-badge {
+    top: 7px;
+    right: 7px;
+    font-size: 9.5px;
+    padding: 2px 6px;
+  }
+
+  .old-price-strike {
+    font-size: 11.5px;
+  }
+}
+
 </style>

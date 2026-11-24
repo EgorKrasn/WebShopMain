@@ -281,6 +281,12 @@ const formatPrice = (value) => {
           >
             <div class="showcase-img-wrap">
               <span class="showcase-sku">Арт. {{ item.sku }}</span>
+              <span
+                v-if="item.discountPercent > 0 || item.promoLabel"
+                class="showcase-promo-badge"
+              >
+                {{ item.promoLabel || `-${item.discountPercent}%` }}
+              </span>
               <img
                 v-if="item.image"
                 :src="resolveImageUrl(item.image)"
@@ -297,11 +303,20 @@ const formatPrice = (value) => {
               <span class="showcase-cat">{{ item.category }}</span>
               <h3 class="showcase-name">{{ item.name }}</h3>
               <div class="showcase-footer">
-                <span class="showcase-price">
-                  {{ formatPrice(userRole === 'wholesale' ? item.wholesalePrice : item.retailPrice) }} BYN
-                </span>
+                <div style="display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;">
+                  <span class="showcase-price">
+                    {{ formatPrice(userRole === 'wholesale' ? item.wholesalePrice : item.retailPrice) }} BYN
+                  </span>
+                  <span
+                    v-if="userRole !== 'wholesale' && item.oldRetailPrice && item.oldRetailPrice > item.retailPrice"
+                    class="showcase-old-price"
+                  >
+                    {{ formatPrice(item.oldRetailPrice) }}
+                  </span>
+                </div>
                 <span class="showcase-more">Подробнее →</span>
               </div>
+
             </div>
           </article>
         </div>
@@ -1040,6 +1055,24 @@ padding: 22px 18px;
 .btn-cta-catalog {
 width: 100%;
 }
+}
+
+.showcase-promo-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background-color: #ef4444;
+  color: #ffffff;
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+.showcase-old-price {
+  font-size: 12px;
+  color: #94a3b8;
+  text-decoration: line-through;
 }
 
 </style>

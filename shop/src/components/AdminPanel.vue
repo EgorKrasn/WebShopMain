@@ -173,10 +173,16 @@ const productForm = reactive({
   description: '',
   image: '',
   icon: '⌚',
-  retailPrice: 0,
-  wholesalePrice: 0,
   minWholesaleQty: 5,
   stock: 10,
+  retailPrice: 0,
+  wholesalePrice: 0,
+  oldRetailPrice: null,
+  oldWholesalePrice: null,
+  promoLabel: '',
+  discountPercent: 0,
+
+
   attributes: [
     { label: 'Механизм', value: 'Кварцевый' },
     { label: 'Материал', value: 'Пластик / Стекло' },
@@ -503,6 +509,12 @@ const openCreateProductModal = () => {
     wholesalePrice: 16,
     minWholesaleQty: 10,
     stock: 20,
+    oldRetailPrice: null,
+    oldWholesalePrice: null,
+    promoLabel: '',
+    discountPercent: 0,
+    discountPercent: product.discountPercent || 0,
+
     attributes: [
       { label: 'Механизм', value: 'Кварцевый' },
       { label: 'Материал', value: 'Пластик' },
@@ -540,7 +552,11 @@ const openEditProductModal = (product) => {
     wholesalePrice: product.wholesalePrice || 0,
     minWholesaleQty: product.minWholesaleQty || 5,
     stock: product.stock ?? 0,
-    attributes: existingAttrs
+    attributes: existingAttrs,
+    oldRetailPrice: product.oldRetailPrice || null,
+    oldWholesalePrice: product.oldWholesalePrice || null,
+    promoLabel: product.promoLabel || '',
+
   })
   isProductFormOpen.value = true
 }
@@ -588,7 +604,12 @@ const openDuplicateProductModal = (product) => {
     wholesalePrice: product.wholesalePrice || 0,
     minWholesaleQty: product.minWholesaleQty || 5,
     stock: product.stock ?? 0,
-    attributes: existingAttrs
+    attributes: existingAttrs,
+    oldRetailPrice: product.oldRetailPrice || null,
+    oldWholesalePrice: product.oldWholesalePrice || null,
+    promoLabel: product.promoLabel || '',
+    discountPercent: product.discountPercent || 0,
+
   })
   isProductFormOpen.value = true
 }
@@ -676,7 +697,11 @@ const submitProductForm = async () => {
     wholesalePrice: Number(productForm.wholesalePrice),
     minWholesaleQty: Number(productForm.minWholesaleQty),
     stock: Number(productForm.stock),
-    attributes: cleanAttributes
+    attributes: cleanAttributes,
+    oldRetailPrice: productForm.oldRetailPrice ? Number(productForm.oldRetailPrice) : null,
+    oldWholesalePrice: productForm.oldWholesalePrice ? Number(productForm.oldWholesalePrice) : null,
+    promoLabel: productForm.promoLabel || '',
+
   }
 
   try {
@@ -952,6 +977,45 @@ const handleImportBackupFile = async (event) => {
     errorMessage.value = err.message || 'Не удалось восстановить данные из архива'
   } finally {
     isImportingBackup.value = false
+  }
+}
+
+// 4) Добавьте функцию пересчёта цены от процента скидки (например, сразу после openDuplicateProductModal):
+const onDiscountPercentInput = () => {
+  const pct = Number(productForm.discountPercent)
+
+  // Если процент очистили или поставили <= 0 — отменяем скидку и возвращаем старую цену в основную
+  if (!pct || pct <= 0) {
+    if (productForm.oldRetailPrice && productForm.oldRetailPrice > productForm.retailPrice) {
+      productForm.retailPrice = Number(productForm.oldRetailPrice)
+    }
+    productForm.oldRetailPrice = null
+
+    if (productForm.oldWholesalePrice && productForm.oldWholesalePrice > productForm.wholesalePrice) {
+      productForm.wholesalePrice = Number(productForm.oldWholesalePrice)
+    }
+    productForm.oldWholesalePrice = null
+    return
+  }
+
+  const clampedPct = Math.min(pct, 99)
+  productForm.discountPercent = clampedPct
+  const multiplier = 1 - clampedPct / 100
+
+  // Пересчёт розничной цены
+  const baseRetail =
+    productForm.oldRetailPrice && productForm.oldRetailPrice > 0
+      ? Number(productForm.oldRetailPrice)
+      : Number(productForm.retailPrice || 0)
+
+  if (baseRetail > 0) {
+    productForm.oldRetailPrice = baseRetail
+    productForm.retailPrice = Number((baseRetail * multiplier).toFixed(2))
+  }
+
+  // Если заполнена старая оптовая цена — пересчитываем и опт
+  if (productForm.oldWholesalePrice && productForm.oldWholesalePrice > 0) {
+    productForm.wholesalePrice = Number((Number(productForm.oldWholesalePrice) * multiplier).toFixed(2))
   }
 }
 
@@ -1467,7 +1531,8 @@ const handleImportBackupFile = async (event) => {
               <th>Действия</th>
             </tr>
           </thead>
-          <tbody>
+
+                    <tbody>
             <tr v-for="p in filteredAdminProducts" :key="p.id">
               <td>
                 <strong>{{ p.sku }}</strong>
@@ -1475,9 +1540,13 @@ const handleImportBackupFile = async (event) => {
               </td>
               <td>
                 <div class="prod-cell">
+
                   <img v-if="p.image" :src="resolveImageUrl(p.image)" class="mini-thumb" alt="" />
                   <div>
                     <strong>{{ p.name }}</strong>
+                    <span v-if="p.discountPercent > 0 || p.promoLabel" class="admin-promo-tag">
+                      {{ p.promoLabel || `-${p.discountPercent}%` }}
+                    </span>
                     <div class="sub-text">{{ p.category }}</div>
                   </div>
                 </div>
@@ -1528,7 +1597,6 @@ const handleImportBackupFile = async (event) => {
                   >
                     <Pencil :size="15" />
                   </button>
-
                   <button
                     type="button"
                     class="btn-icon copy"
@@ -1545,14 +1613,11 @@ const handleImportBackupFile = async (event) => {
                   >
                     <Trash2 :size="15" />
                   </button>
-
-
-                  
-
                 </div>
               </td>
             </tr>
           </tbody>
+
         </table>
       </div>
     </div>
@@ -1867,6 +1932,55 @@ const handleImportBackupFile = async (event) => {
               <input v-model.number="productForm.stock" type="number" min="0" />
             </div>
           </div>
+
+          <div class="promo-editor-box">
+            <div class="promo-editor-title">Скидка и акция (необязательно)</div>
+            <div class="form-grid-4">
+              <div class="f-group">
+                <label>Скидка (%)</label>
+                <input
+                  v-model.number="productForm.discountPercent"
+                  type="number"
+                  min="0"
+                  max="99"
+                  step="1"
+                  placeholder="Напр. 20"
+                  @input="onDiscountPercentInput"
+                />
+              </div>
+              <div class="f-group">
+                <label>Старая розн. цена (BYN)</label>
+                <input
+                  v-model.number="productForm.oldRetailPrice"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Авто"
+                />
+              </div>
+              <div class="f-group">
+                <label>Старая опт. цена (BYN)</label>
+                <input
+                  v-model.number="productForm.oldWholesalePrice"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Необяз."
+                />
+              </div>
+              <div class="f-group">
+                <label>Бейдж акции (текст)</label>
+                <input
+                  v-model="productForm.promoLabel"
+                  type="text"
+                  maxlength="24"
+                  placeholder="Авто (-20%)"
+                />
+              </div>
+            </div>
+          </div>
+
+
 
           <div class="attrs-editor">
             <div class="attrs-head">
@@ -3242,5 +3356,45 @@ cursor: pointer;
     grid-template-columns: 1fr;
   }
 }
+
+.admin-promo-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  background-color: #fee2e2;
+  color: #b91c1c;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.promo-editor-box {
+  background-color: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.promo-editor-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: #92400e;
+}
+
+.form-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .form-grid-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
 
 </style>

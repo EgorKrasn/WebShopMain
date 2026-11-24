@@ -129,17 +129,51 @@ const formatPrice = (value) => {
 
 const linkCopied = ref(false)
 
-const copyProductLink = async () => {
-  try {
-    await navigator.clipboard.writeText(window.location.href)
-    linkCopied.value = true
-    setTimeout(() => {
-      linkCopied.value = false
-    }, 2000)
-  } catch (err) {
-    console.warn('Не удалось скопировать ссылку:', err)
+const shareProduct = async () => {
+  if (!props.product) return
+
+  const shareUrl = window.location.href
+  const activePrice = isWholesale.value
+    ? props.product.wholesalePrice
+    : props.product.retailPrice
+  const shareTitle = `${props.product.name} — СандринТайм`
+  const shareText = `${props.product.name} (Арт. ${props.product.sku}) — ${formatPrice(activePrice)} BYN`
+
+  // 1. На смартфонах (iOS / Android) открываем нативное окно выбора мессенджера
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: shareTitle,
+        text: shareText,
+        url: shareUrl
+      })
+      return
+    } catch (err) {
+      // Если пользователь сам закрыл окно «Поделиться» — ничего не делаем
+      if (err?.name === 'AbortError') return
+    }
   }
+
+  // 2. На ПК или при отказе Web Share API копируем ссылку в буфер обмена
+  try {
+    await navigator.clipboard.writeText(shareUrl)
+    linkCopied.value = true
+  } catch {
+    // Резервный способ копирования для старых браузеров / HTTP без HTTPS
+    const tempInput = document.createElement('input')
+    tempInput.value = shareUrl
+    document.body.appendChild(tempInput)
+    tempInput.select()
+    document.execCommand('copy')
+    document.body.removeChild(tempInput)
+    linkCopied.value = true
+  }
+
+  setTimeout(() => {
+    linkCopied.value = false
+  }, 2200)
 }
+
 
 const availableStock = computed(() => {
   return Number(props.product?.stock ?? 0)
@@ -175,17 +209,27 @@ const increaseQty = () => {
           <div class="top-badges">
             <span class="sku-pill">Арт. {{ product.sku }}</span>
             <span class="cat-pill">{{ product.category }}</span>
+
+            <span
+              v-if="product.discountPercent > 0 || product.promoLabel"
+              class="modal-promo-pill"
+            >
+              {{ product.promoLabel || `Скидка -${product.discountPercent}%` }}
+            </span>
+
+
             <button
               type="button"
               class="copy-link-btn"
               :class="{ copied: linkCopied }"
-              @click="copyProductLink"
-              title="Скопировать прямую ссылку на этот цвет"
+              @click="shareProduct"
+              title="Поделиться ссылкой на этот товар"
             >
               <Check v-if="linkCopied" :size="13" />
               <Share2 v-else :size="13" />
               <span>{{ linkCopied ? 'Ссылка скопирована' : 'Поделиться' }}</span>
             </button>
+
           </div>
           <button type="button" class="close-btn" @click="emit('close')" aria-label="Закрыть окно">
             <X :size="18" />
@@ -295,7 +339,15 @@ const increaseQty = () => {
             <div class="price-panel">
               <template v-if="isWholesale">
                 <div class="price-main-line">
-                  <span class="current-price wholesale">{{ formatPrice(product.wholesalePrice) }} BYN</span>
+                  <div class="price-values-wrap">
+                    <span class="current-price wholesale">{{ formatPrice(product.wholesalePrice) }} BYN</span>
+                    <span
+                      v-if="product.oldWholesalePrice && product.oldWholesalePrice > product.wholesalePrice"
+                      class="modal-old-price"
+                    >
+                      {{ formatPrice(product.oldWholesalePrice) }} BYN
+                    </span>
+                  </div>
                   <span class="role-tag wholesale">Оптовая цена / шт.</span>
                 </div>
                 <div class="price-sub-line">
@@ -305,11 +357,22 @@ const increaseQty = () => {
 
               <template v-else>
                 <div class="price-main-line">
-                  <span class="current-price">{{ formatPrice(product.retailPrice) }} BYN</span>
+                  <div class="price-values-wrap">
+                    <span class="current-price">{{ formatPrice(product.retailPrice) }} BYN</span>
+                    <span
+                      v-if="product.oldRetailPrice && product.oldRetailPrice > product.retailPrice"
+                      class="modal-old-price"
+                    >
+                      {{ formatPrice(product.oldRetailPrice) }} BYN
+                    </span>
+                  </div>
                   <span class="role-tag">Розничная цена / шт.</span>
                 </div>
               </template>
             </div>
+
+
+
 
             <!-- Выбор количества и кнопка добавления -->
             <div class="purchase-controls">
@@ -874,6 +937,30 @@ font-size: 20px;
 
 .color-swatch-card.out-of-stock.active {
   opacity: 0.85;
+}
+
+
+.modal-promo-pill {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 8px;
+}
+
+.price-values-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.modal-old-price {
+  font-size: 16px;
+  font-weight: 700;
+  color: #64748b;
+  text-decoration: line-through;
 }
 
 

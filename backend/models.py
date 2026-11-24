@@ -49,11 +49,13 @@ class Product(Base):
     retail_price = Column(Float, nullable=False)
     wholesale_price = Column(Float, nullable=False)
     min_wholesale_qty = Column(Integer, default=5)
+    stock = Column(Integer, default=20, nullable=False)
 
-    retail_price = Column(Float, nullable=False)
-    wholesale_price = Column(Float, nullable=False)
-    min_wholesale_qty = Column(Integer, default=5)
-    stock = Column(Integer, default=20, nullable=False)  # <-- НОВОЕ: Остаток на складе (шт.)
+    # <-- НОВОЕ: Скидки и акции
+    old_retail_price = Column(Float, nullable=True)
+    old_wholesale_price = Column(Float, nullable=True)
+    promo_label = Column(String, nullable=True)
+
 
 
 

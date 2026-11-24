@@ -23,12 +23,26 @@ import schemas
 import security
 from database import engine, get_db, SessionLocal
 
+from sqlalchemy import text
+
 load_dotenv()
 
 ENV = os.getenv("ENV", "development")
 is_prod = ENV == "production"
 
 models.Base.metadata.create_all(bind=engine)
+
+def ensure_product_promo_columns():
+    with engine.begin() as conn:
+        cols = [row[1] for row in conn.execute(text("PRAGMA table_info(products)")).fetchall()]
+        if "old_retail_price" not in cols:
+            conn.execute(text("ALTER TABLE products ADD COLUMN old_retail_price FLOAT"))
+        if "old_wholesale_price" not in cols:
+            conn.execute(text("ALTER TABLE products ADD COLUMN old_wholesale_price FLOAT"))
+        if "promo_label" not in cols:
+            conn.execute(text("ALTER TABLE products ADD COLUMN promo_label VARCHAR"))
+
+ensure_product_promo_columns()
 
 # Инициализация лимитера запросов (защита от брутфорса и DDoS на уровне API)
 limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
@@ -253,6 +267,10 @@ def get_products(request: Request, db: Session = Depends(get_db)):
             if p.warranty:
                 product_attributes.append({"label": "Гарантия", "value": p.warranty})
 
+        discount_percent = 0
+        if p.old_retail_price and p.old_retail_price > p.retail_price and p.retail_price > 0:
+            discount_percent = round((1 - p.retail_price / p.old_retail_price) * 100)
+
         result.append({
             "id": p.id,
             "sku": p.sku,
@@ -271,10 +289,15 @@ def get_products(request: Request, db: Session = Depends(get_db)):
             "image": p.image,
             "retailPrice": p.retail_price,
             "wholesalePrice": p.wholesale_price,
+            "oldRetailPrice": p.old_retail_price,
+            "oldWholesalePrice": p.old_wholesale_price,
+            "promoLabel": p.promo_label,
+            "discountPercent": discount_percent,
             "minWholesaleQty": p.min_wholesale_qty,
             "stock": p.stock,
             "variants": variants,
         })
+
 
     return result
 
@@ -868,6 +891,10 @@ def admin_create_product(
             wholesale_price=max(0.0, float(payload.get("wholesalePrice") or 0)),
             min_wholesale_qty=max(1, int(payload.get("minWholesaleQty") or 5)),
             stock=max(0, int(payload.get("stock") or 0)),
+            old_retail_price=float(payload["oldRetailPrice"]) if payload.get("oldRetailPrice") else None,
+            old_wholesale_price=float(payload["oldWholesalePrice"]) if payload.get("oldWholesalePrice") else None,
+            promo_label=(payload.get("promoLabel") or "").strip() or None,
+
         )
         db.add(new_product)
         db.commit()
@@ -918,6 +945,15 @@ def admin_update_product(
         product.min_wholesale_qty = max(1, int(payload["minWholesaleQty"]))
     if "stock" in payload:
         product.stock = max(0, int(payload["stock"]))
+    if "oldRetailPrice" in payload:
+        val = payload["oldRetailPrice"]
+        product.old_retail_price = float(val) if val not in (None, "", 0, "0") else None
+    if "oldWholesalePrice" in payload:
+        val = payload["oldWholesalePrice"]
+        product.old_wholesale_price = float(val) if val not in (None, "", 0, "0") else None
+    if "promoLabel" in payload:
+        product.promo_label = (payload["promoLabel"] or "").strip() or None
+
 
     db.commit()
     return {"ok": True}
@@ -1078,11 +1114,15 @@ def admin_export_backup(
                 "image": p.image,
                 "retail_price": p.retail_price,
                 "wholesale_price": p.wholesale_price,
+                "old_retail_price": p.old_retail_price,
+                "old_wholesale_price": p.old_wholesale_price,
+                "promo_label": p.promo_label,
                 "min_wholesale_qty": p.min_wholesale_qty,
                 "stock": p.stock,
             }
             for p in products
         ],
+
     }
 
     zip_buffer = io.BytesIO()
@@ -1201,10 +1241,14 @@ async def admin_import_backup(
                         image=(p.get("image") or "").strip() or None,
                         retail_price=float(p.get("retail_price") or 0.0),
                         wholesale_price=float(p.get("wholesale_price") or 0.0),
+                        old_retail_price=float(p["old_retail_price"]) if p.get("old_retail_price") else None,
+                        old_wholesale_price=float(p["old_wholesale_price"]) if p.get("old_wholesale_price") else None,
+                        promo_label=(p.get("promo_label") or "").strip() or None,
                         min_wholesale_qty=int(p.get("min_wholesale_qty") or 5),
                         stock=int(p.get("stock") or 0),
                     )
                 )
+
 
             db.commit()
         except Exception as e:

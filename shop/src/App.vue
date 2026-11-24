@@ -2,7 +2,8 @@
 import { watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ref, computed, onMounted } from 'vue'
-import { api } from './services/api.js'
+import { api, resolveImageUrl } from './services/api.js'
+
 import Navbar from './components/Navbar.vue'
 import ProductCatalog from './components/ProductCatalog.vue'
 import ProductModal from './components/ProductModal.vue'
@@ -319,6 +320,62 @@ watch(
   { immediate: true }
 )
 
+const setMetaTag = (attrName, attrValue, content) => {
+  if (!content) return
+  let tag = document.querySelector(`meta[${attrName}="${attrValue}"]`)
+  if (!tag) {
+    tag = document.createElement('meta')
+    tag.setAttribute(attrName, attrValue)
+    document.head.appendChild(tag)
+  }
+  tag.setAttribute('content', content)
+}
+
+watch(
+  [selectedProduct, () => route.name],
+  ([prod, currentRouteName]) => {
+    const pageUrl = window.location.href
+
+    if (prod) {
+      const priceText = `${Number(prod.retailPrice || 0).toFixed(2).replace('.', ',')} BYN`
+      const title = `${prod.name} (Арт. ${prod.sku}) — ${priceText} | СандринТайм`
+      const desc =
+        prod.description ||
+        `${prod.name}. ${prod.specs || ''}. Официальная гарантия, доставка по Беларуси и самовывоз в Минске.`
+      const imgUrl = prod.image
+        ? new URL(resolveImageUrl(prod.image), window.location.origin).href
+        : ''
+
+      document.title = title
+      setMetaTag('name', 'description', desc)
+      setMetaTag('property', 'og:type', 'product')
+      setMetaTag('property', 'og:title', title)
+      setMetaTag('property', 'og:description', desc)
+      setMetaTag('property', 'og:url', pageUrl)
+      if (imgUrl) {
+        setMetaTag('property', 'og:image', imgUrl)
+      }
+      return
+    }
+
+    const defaultTitle =
+      currentRouteName === 'catalog'
+        ? 'Каталог часов и интерьерной электроники — СандринТайм'
+        : 'СандринТайм — интернет-магазин часов и интерьерной электроники в Беларуси'
+    const defaultDesc =
+      'Наручные, настенные и настольные часы, будильники, метеостанции и интерьерная электроника. Розница и оптовые поставки по всей Беларуси.'
+
+    document.title = defaultTitle
+    setMetaTag('name', 'description', defaultDesc)
+    setMetaTag('property', 'og:type', 'website')
+    setMetaTag('property', 'og:title', defaultTitle)
+    setMetaTag('property', 'og:description', defaultDesc)
+    setMetaTag('property', 'og:url', pageUrl)
+  },
+  { immediate: true }
+)
+
+
 const loadProducts = async () => {
   try {
     const serverProducts = await api.getProducts()
@@ -470,8 +527,10 @@ watch(searchQuery, (newVal) => {
         v-if="isAdminPage && isAdmin"
         @close="closeAdminPanel"
         @categories-updated="loadCategories"
-        @catalog-restored="loadInitialData"
+        @products-updated="loadProducts"
+        @catalog-restored="Promise.all([loadCategories(), loadProducts()])"
       />
+
 
       <div v-else class="shop-shell">
         <CategorySidebar
