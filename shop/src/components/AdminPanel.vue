@@ -26,6 +26,7 @@ import {
   Save,
   Pencil,
   Copy,
+  ClipboardPaste,
   Upload,
   X,
   HardDriveDownload,
@@ -33,6 +34,7 @@ import {
   AlertTriangle,
   FileArchive
 } from 'lucide-vue-next'
+
 
 
 
@@ -599,6 +601,59 @@ const addAttributeRow = () => {
 const removeAttributeRow = (index) => {
   productForm.attributes.splice(index, 1)
 }
+
+const ATTR_CLIPBOARD_KEY = 'sandrintime_copied_attributes'
+const copiedAttributes = ref([])
+
+// При загрузке восстанавливаем скопированные ранее характеристики из localStorage
+try {
+  const savedAttrs = localStorage.getItem(ATTR_CLIPBOARD_KEY)
+  if (savedAttrs) {
+    const parsed = JSON.parse(savedAttrs)
+    if (Array.isArray(parsed)) {
+      copiedAttributes.value = parsed
+    }
+  }
+} catch {
+  // игнорируем повреждённый JSON
+}
+
+const copyProductAttributes = () => {
+  const validAttrs = productForm.attributes
+    .map((a) => ({
+      label: String(a.label || '').trim(),
+      value: String(a.value || '').trim()
+    }))
+    .filter((a) => a.label || a.value)
+
+  if (validAttrs.length === 0) {
+    errorMessage.value = 'Нет заполненных характеристик для копирования'
+    return
+  }
+
+  copiedAttributes.value = validAttrs
+  try {
+    localStorage.setItem(ATTR_CLIPBOARD_KEY, JSON.stringify(validAttrs))
+  } catch {
+    // игнорируем ошибки квоты storage
+  }
+  showToast(`Скопировано характеристик: ${validAttrs.length} шт.`)
+}
+
+const pasteProductAttributes = () => {
+  if (!Array.isArray(copiedAttributes.value) || copiedAttributes.value.length === 0) {
+    errorMessage.value = 'Буфер характеристик пуст — сначала нажмите «Копировать»'
+    return
+  }
+
+  // Создаём глубокую копию объектов, чтобы редактирование новой карточки не меняло буфер
+  productForm.attributes = copiedAttributes.value.map((a) => ({
+    label: a.label,
+    value: a.value
+  }))
+  showToast(`Вставлено характеристик: ${productForm.attributes.length} шт.`)
+}
+
 
 const submitProductForm = async () => {
   errorMessage.value = ''
@@ -1816,7 +1871,34 @@ const handleImportBackupFile = async (event) => {
           <div class="attrs-editor">
             <div class="attrs-head">
               <label>Характеристики в карточке (названия полей можно менять):</label>
-              <button type="button" class="btn-add-attr" @click="addAttributeRow">+ Добавить поле</button>
+              <div class="attrs-head-actions">
+                <button
+                  type="button"
+                  class="btn-attr-tool copy"
+                  title="Скопировать все характеристики этого товара"
+                  @click="copyProductAttributes"
+                >
+                  <Copy :size="13" />
+                  <span>Копировать</span>
+                </button>
+                <button
+                  type="button"
+                  class="btn-attr-tool paste"
+                  :disabled="copiedAttributes.length === 0"
+                  :title="
+                    copiedAttributes.length > 0
+                      ? `Вставить скопированные характеристики (${copiedAttributes.length} шт.)`
+                      : 'Сначала скопируйте характеристики из другого товара'
+                  "
+                  @click="pasteProductAttributes"
+                >
+                  <ClipboardPaste :size="13" />
+                  <span>Вставить{{ copiedAttributes.length > 0 ? ` (${copiedAttributes.length})` : '' }}</span>
+                </button>
+                <button type="button" class="btn-add-attr" @click="addAttributeRow">
+                  + Добавить поле
+                </button>
+              </div>
             </div>
             <div v-for="(attr, idx) in productForm.attributes" :key="idx" class="attr-row">
               <input v-model="attr.label" type="text" placeholder="Название поля (напр. Водозащита)" />
@@ -1824,6 +1906,7 @@ const handleImportBackupFile = async (event) => {
               <button type="button" class="btn-del-attr" @click="removeAttributeRow(idx)">✕</button>
             </div>
           </div>
+
         </div>
 
         <div class="editor-foot">
@@ -2424,6 +2507,66 @@ cursor: pointer;
   font-weight: 700;
   cursor: pointer;
 }
+
+.attrs-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.attrs-head-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.btn-attr-tool {
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.btn-attr-tool.copy {
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  color: #334155;
+}
+
+.btn-attr-tool.copy:hover {
+  border-color: #0f172a;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+.btn-attr-tool.paste {
+  border: 1px solid #c4b5fd;
+  background-color: #f5f3ff;
+  color: #6d28d9;
+}
+
+.btn-attr-tool.paste:hover:not(:disabled) {
+  background-color: #7c3aed;
+  border-color: #7c3aed;
+  color: #ffffff;
+}
+
+.btn-attr-tool:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 
 .attr-row {
   display: grid;
