@@ -3,14 +3,18 @@ import json
 import os
 import re
 import shutil
+import tempfile
 import uuid
 import zipfile
 from datetime import datetime
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from PIL import Image, ImageOps, UnidentifiedImageError
+from starlette.background import BackgroundTask
+
 
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
@@ -635,6 +639,10 @@ def get_categories(db: Session = Depends(get_db)):
 MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024  # 5 МБ
 
 
+MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024  # 10 МБ на входной файл до сжатия
+MAX_IMAGE_DIMENSION = 1000  # Максимальная ширина/высота итогового PNG
+
+
 def is_valid_image_bytes(header: bytes) -> bool:
     if header.startswith(b"\xff\xd8\xff"):  # JPEG
         return True
@@ -645,6 +653,27 @@ def is_valid_image_bytes(header: bytes) -> bool:
     if header.startswith(b"RIFF") and header[8:12] == b"WEBP":  # WEBP
         return True
     return False
+
+
+def process_image_to_optimized_png(raw_bytes: bytes) -> bytes:
+    try:
+        with Image.open(io.BytesIO(raw_bytes)) as img:
+            img = ImageOps.exif_transpose(img)
+
+            # Сохраняем альфа-канал (прозрачность) для PNG/WEBP/GIF или переводим в RGB
+            if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+                img = img.convert("RGBA")
+            elif img.mode != "RGB":
+                img = img.convert("RGB")
+
+            if img.width > MAX_IMAGE_DIMENSION or img.height > MAX_IMAGE_DIMENSION:
+                img.thumbnail((MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION), Image.Resampling.LANCZOS)
+
+            out_buffer = io.BytesIO()
+            img.save(out_buffer, format="PNG", optimize=True)
+            return out_buffer.getvalue()
+    except (UnidentifiedImageError, OSError):
+        raise HTTPException(status_code=400, detail="Файл повреждён или не является корректным изображением")
 
 
 @app.post("/api/admin/upload-image")
@@ -659,18 +688,21 @@ async def admin_upload_product_image(
 
     content = await file.read()
     if len(content) > MAX_IMAGE_SIZE_BYTES:
-        raise HTTPException(status_code=400, detail="Размер изображения не должен превышать 5 МБ")
+        raise HTTPException(status_code=400, detail="Размер исходного изображения не должен превышать 10 МБ")
 
     if not is_valid_image_bytes(content[:16]):
         raise HTTPException(status_code=400, detail="Файл повреждён или не является настоящим изображением")
 
-    filename = f"{uuid.uuid4().hex}{ext}"
+    optimized_png_bytes = process_image_to_optimized_png(content)
+
+    filename = f"{uuid.uuid4().hex}.png"
     file_path = os.path.join(UPLOAD_DIR, filename)
 
     with open(file_path, "wb") as buffer:
-        buffer.write(content)
+        buffer.write(optimized_png_bytes)
 
     return {"url": f"/uploads/{filename}"}
+
 
 
 
@@ -975,7 +1007,6 @@ def admin_delete_product(
 def get_real_client_ip(request: Request) -> str:
     return request.headers.get("X-Real-IP") or get_remote_address(request)
 
-limiter = Limiter(key_func=get_real_client_ip, default_limits=["120/minute"])
 
 
 # 8. Создать категорию
@@ -1067,7 +1098,15 @@ def admin_delete_category(
 # 11. РЕЗЕРВНОЕ КОПИРОВАНИЕ И МИГРАЦИЯ (.ZIP)
 # ==========================================
 
-MAX_BACKUP_SIZE_BYTES = 150 * 1024 * 1024  # 150 МБ
+MAX_BACKUP_SIZE_BYTES = 500 * 1024 * 1024  # 500 МБ
+
+
+def _cleanup_temp_file(path: str):
+    try:
+        if path and os.path.exists(path):
+            os.remove(path)
+    except OSError:
+        pass
 
 
 @app.get("/api/admin/backup/export")
@@ -1122,35 +1161,40 @@ def admin_export_backup(
             }
             for p in products
         ],
-
     }
 
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(
-            "backup_data.json",
-            json.dumps(backup_payload, ensure_ascii=False, indent=2)
-        )
+    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    tmp_path = tmp_file.name
+    tmp_file.close()
 
-        # Упаковываем все файлы из папки uploads/
-        if os.path.exists(UPLOAD_DIR):
-            for root, _, files in os.walk(UPLOAD_DIR):
-                for file_name in files:
-                    full_path = os.path.join(root, file_name)
-                    rel_path = os.path.relpath(full_path, UPLOAD_DIR).replace("\\", "/")
-                    zf.write(full_path, arcname=f"uploads/{rel_path}")
+    try:
+        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(
+                "backup_data.json",
+                json.dumps(backup_payload, ensure_ascii=False, indent=2)
+            )
 
-    zip_buffer.seek(0)
+            if os.path.exists(UPLOAD_DIR):
+                for root, _, files in os.walk(UPLOAD_DIR):
+                    for file_name in files:
+                        full_path = os.path.join(root, file_name)
+                        rel_path = os.path.relpath(full_path, UPLOAD_DIR).replace("\\", "/")
+                        zf.write(full_path, arcname=f"uploads/{rel_path}")
+    except Exception:
+        _cleanup_temp_file(tmp_path)
+        raise
+
     date_stamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     filename = f"sandrintime-backup-{date_stamp}.zip"
 
-    return StreamingResponse(
-        zip_buffer,
+    return FileResponse(
+        path=tmp_path,
         media_type="application/zip",
+        filename=filename,
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
             "Access-Control-Expose-Headers": "Content-Disposition",
         },
+        background=BackgroundTask(_cleanup_temp_file, tmp_path),
     )
 
 
