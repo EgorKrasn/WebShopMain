@@ -1,7 +1,7 @@
 <script setup>
 import { watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
 import { api, resolveImageUrl } from './services/api.js'
 
 import Navbar from './components/Navbar.vue'
@@ -11,7 +11,6 @@ import AuthModal from './components/AuthModal.vue'
 import CartDrawer from './components/CartDrawer.vue'
 import AccountModal from './components/AccountModal.vue'
 import Footer from './components/Footer.vue'
-import AdminPanel from './components/AdminPanel.vue'
 import HomeView from './views/HomeView.vue'
 import CategorySidebar from './components/CategorySidebar.vue'
 import { ArrowLeft, Settings, CheckCircle2 } from 'lucide-vue-next'
@@ -21,6 +20,8 @@ import MobileBottomNav from './components/MobileBottomNav.vue'
 
 
 
+
+const AdminPanel = defineAsyncComponent(() => import('./components/AdminPanel.vue'))
 
 const isAuthModalOpen = ref(false)
 const authModalMode = ref('login')
