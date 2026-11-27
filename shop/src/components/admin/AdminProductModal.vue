@@ -416,13 +416,23 @@ const submitProductForm = async () => {
           </div>
           <div class="f-group">
             <label>Подкатегория</label>
-            <select v-model="productForm.subcategory" :disabled="availableSubcategories.length === 0">
+            <select
+              v-model="productForm.subcategory"
+              :disabled="availableSubcategories.length === 0 && !productForm.subcategory"
+            >
               <option value="">— Без подкатегории —</option>
+              <option
+                v-if="productForm.subcategory && !availableSubcategories.includes(productForm.subcategory)"
+                :value="productForm.subcategory"
+              >
+                {{ productForm.subcategory }} (нет в справочнике категории)
+              </option>
               <option v-for="sub in availableSubcategories" :key="sub" :value="sub">
                 {{ sub }}
               </option>
             </select>
           </div>
+
         </div>
 
         <div class="f-group">

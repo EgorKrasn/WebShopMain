@@ -1272,7 +1272,9 @@ def admin_bulk_create_products(
                 promo_label=(str(row.get("promoLabel") or "").strip()) or None,
                 min_wholesale_qty=min_wholesale_qty,
                 stock=stock,
+                is_hidden=bool(row.get("isHidden", False)),
             )
+
             db.add(new_product)
             seen_in_batch.add(sku_lower)
             created_count += 1

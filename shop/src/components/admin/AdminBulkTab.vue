@@ -381,6 +381,21 @@ const createFileInput = ref(null)
 const createFileName = ref('')
 const parsedCreateRows = ref([])
 const isApplyingCreate = ref(false)
+const createAsHidden = ref(true) // По умолчанию создаём скрытыми, пока не добавлены фото/цены
+
+const categorySubcategoriesMap = computed(() => {
+  const map = new Map()
+  for (const c of props.categories || []) {
+    const catName = String(c.name || '').trim()
+    if (!catName) continue
+    const subs = Array.isArray(c.subcategories)
+      ? c.subcategories.map((s) => String(s).trim()).filter(Boolean)
+      : []
+    map.set(catName, new Set(subs))
+  }
+  return map
+})
+
 
 const validCategoryNames = computed(() => {
   return new Set((props.categories || []).map((c) => String(c.name).trim()))
@@ -594,7 +609,9 @@ const handleCreateFileChange = async (event) => {
       const oldRetailPrice = parseOptionalNumber(r['Старая розница (BYN)'])
       const oldWholesalePrice = parseOptionalNumber(r['Старый опт (BYN)'])
 
-      // Проверяем все 6 обязательных полей: Артикул, Группа цвета, Цвет, Категория, Подкатегория, Наименование
+      const allowedSubs = categorySubcategoriesMap.value.get(category)
+
+      // Проверяем все 6 обязательных полей + соответствие подкатегории выбранной категории
       let errorReason = ''
       if (!sku) {
         errorReason = 'Не указан артикул'
@@ -604,10 +621,12 @@ const handleCreateFileChange = async (event) => {
         errorReason = 'Не указан цвет'
       } else if (!category) {
         errorReason = 'Не указана категория'
-      } else if (validCategoryNames.value.size > 0 && !validCategoryNames.value.has(category)) {
+      } else if (categorySubcategoriesMap.value.size > 0 && !allowedSubs) {
         errorReason = `Категория «${category}» не найдена`
       } else if (!subcategory) {
         errorReason = 'Не указана подкатегория'
+      } else if (allowedSubs && allowedSubs.size > 0 && !allowedSubs.has(subcategory)) {
+        errorReason = `Подкатегория «${subcategory}» не входит в «${category}»`
       } else if (!name) {
         errorReason = 'Не указано наименование'
       } else if (productsBySku.value.has(sku.toLowerCase())) {
@@ -615,6 +634,7 @@ const handleCreateFileChange = async (event) => {
       } else if (seenInFile.has(sku.toLowerCase())) {
         errorReason = 'Дубликат артикула внутри файла'
       }
+
 
       if (sku) seenInFile.add(sku.toLowerCase())
 
@@ -661,13 +681,19 @@ const executeBulkCreate = async () => {
 
   try {
     const res = await api.adminBulkCreateProducts({
-      items: validCreateRows.value
+      items: validCreateRows.value.map((r) => ({
+        ...r,
+        isHidden: createAsHidden.value
+      }))
     })
     emit('updated')
 
     let msg = `Успешно создано карточек товаров: ${res.createdCount} шт.`
+    if (createAsHidden.value) {
+      msg += ' (скрыты с витрины до добавления фото)'
+    }
     if (res.skipped?.length) {
-      msg += ` (пропущено: ${res.skipped.length})`
+      msg += ` • пропущено: ${res.skipped.length}`
     }
     emit('toast', msg)
 
@@ -679,6 +705,7 @@ const executeBulkCreate = async () => {
     isApplyingCreate.value = false
   }
 }
+
 </script>
 
 <template>
@@ -881,13 +908,14 @@ const executeBulkCreate = async () => {
           <h2 class="bulk-card-title">Скачайте шаблон для новых товаров</h2>
           <p class="bulk-card-desc">
             В файле есть пример заполнения и второй лист <strong>«Справочник категорий»</strong>,
-            откуда удобно копировать точные названия разделов. Фотографии можно загрузить позже в карточках.
+            откуда удобно копировать точные названия разделов и подкатегорий. Фотографии можно загрузить позже в карточках.
           </p>
           <button type="button" class="btn-bulk-secondary" @click="downloadCreateTemplate">
             <FileSpreadsheet :size="17" />
             <span>Скачать шаблон новых карточек (.xlsx)</span>
           </button>
         </article>
+
 
         <article class="bulk-step-card">
           <div class="step-badge">Шаг 2</div>
@@ -957,6 +985,7 @@ const executeBulkCreate = async () => {
                 <th>Статус</th>
                 <th>Артикул</th>
                 <th>Категория</th>
+                <th>Подкатегория</th>
                 <th>Наименование</th>
                 <th>Розница / Опт</th>
                 <th>Остаток</th>
@@ -974,12 +1003,14 @@ const executeBulkCreate = async () => {
                 </td>
                 <td><strong>{{ row.sku || '—' }}</strong></td>
                 <td>{{ row.category || '—' }}</td>
+                <td>{{ row.subcategory || '—' }}</td>
                 <td>{{ row.name || '—' }}</td>
                 <td>{{ row.retailPrice.toFixed(2) }} / {{ row.wholesalePrice.toFixed(2) }} BYN</td>
                 <td>{{ row.stock }} шт.</td>
               </tr>
             </tbody>
           </table>
+
         </div>
       </div>
     </div>
@@ -1019,6 +1050,7 @@ const executeBulkCreate = async () => {
       </div>
     </Teleport>
   </div>
+
 </template>
 
 
