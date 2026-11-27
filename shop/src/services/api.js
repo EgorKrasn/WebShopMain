@@ -170,6 +170,19 @@ export const api = {
 			body: JSON.stringify(payload),
 		})
 	},
+	adminUpdateProduct(productId, payload) {
+		return request(`/admin/products/${productId}`, {
+			method: 'PUT',
+			body: JSON.stringify(payload),
+		})
+	},
+	adminToggleProductVisibility(productId, isHidden) {
+		return request(`/admin/products/${productId}/visibility`, {
+			method: 'PATCH',
+			body: JSON.stringify({ isHidden }),
+		})
+	},
+
 	adminDeleteProduct(productId) {
 		return request(`/admin/products/${productId}`, {
 			method: 'DELETE',

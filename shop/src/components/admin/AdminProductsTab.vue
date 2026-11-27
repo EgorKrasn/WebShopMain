@@ -10,8 +10,11 @@ import {
   ChevronLeft,
   ChevronRight,
   RotateCcw,
-  CheckCheck
+  CheckCheck,
+  Eye,
+  EyeOff
 } from 'lucide-vue-next'
+
 import AdminProductModal from './AdminProductModal.vue'
 import { api, resolveImageUrl } from '../../services/api.js'
 import './admin.css'
@@ -105,7 +108,8 @@ const chipCounts = computed(() => {
     zero: list.filter((p) => (p.stock ?? 0) <= 0).length,
     low: list.filter((p) => (p.stock ?? 0) > 0 && (p.stock ?? 0) < 5).length,
     promo: list.filter((p) => (p.discountPercent ?? 0) > 0 || Boolean(p.promoLabel)).length,
-    no_image: list.filter((p) => !p.image || !String(p.image).trim()).length
+    no_image: list.filter((p) => !p.image || !String(p.image).trim()).length,
+    hidden: list.filter((p) => Boolean(p.isHidden)).length
   }
 })
 const filteredAndSortedProducts = computed(() => {
@@ -119,7 +123,10 @@ const filteredAndSortedProducts = computed(() => {
     list = list.filter((p) => (p.discountPercent ?? 0) > 0 || Boolean(p.promoLabel))
   } else if (activeStockChip.value === 'no_image') {
     list = list.filter((p) => !p.image || !String(p.image).trim())
+  } else if (activeStockChip.value === 'hidden') {
+    list = list.filter((p) => Boolean(p.isHidden))
   }
+
 
   if (sortBy.value === 'default') return list
 
@@ -276,6 +283,31 @@ const saveAllDirtyProducts = async () => {
   }
 }
 
+const togglingVisibilityIds = ref({})
+
+const toggleProductVisibility = async (product) => {
+  if (togglingVisibilityIds.value[product.id]) return
+  const nextHiddenState = !product.isHidden
+
+  togglingVisibilityIds.value[product.id] = true
+  emit('error', '')
+  try {
+    await api.adminToggleProductVisibility(product.id, nextHiddenState)
+    product.isHidden = nextHiddenState
+    emit('updated')
+    emit(
+      'toast',
+      nextHiddenState
+        ? `Товар «${product.name}» скрыт из каталога`
+        : `Товар «${product.name}» снова отображается в каталоге`
+    )
+  } catch (err) {
+    emit('error', err.message || 'Не удалось изменить видимость товара')
+  } finally {
+    delete togglingVisibilityIds.value[product.id]
+  }
+}
+
 const deleteProductItem = async (product) => {
   if (!confirm(`Удалить товар «${product.name}» (${product.sku})?`)) return
   emit('error', '')
@@ -288,6 +320,7 @@ const deleteProductItem = async (product) => {
   }
 }
 </script>
+
 
 <template>
   <div class="tab-content">
@@ -407,7 +440,18 @@ const deleteProductItem = async (product) => {
         <span>Без фото</span>
         <span class="filter-pill-count">{{ chipCounts.no_image }}</span>
       </button>
+
+      <button
+        type="button"
+        class="filter-pill-btn"
+        :class="{ active: activeStockChip === 'hidden' }"
+        @click="activeStockChip = 'hidden'"
+      >
+        <span>Скрытые</span>
+        <span class="filter-pill-count">{{ chipCounts.hidden }}</span>
+      </button>
     </div>
+
 
     <div v-if="activeGroupFilter" class="group-filter-banner">
       <div style="display: flex; align-items: center; gap: 8px;">
@@ -474,7 +518,7 @@ const deleteProductItem = async (product) => {
             <tr
               v-for="p in paginatedProducts"
               :key="p.id"
-              :class="{ 'row-dirty': isRowDirty(p) }"
+              :class="{ 'row-dirty': isRowDirty(p), 'row-hidden': p.isHidden }"
             >
               <td>
                 <strong>{{ p.sku }}</strong>
@@ -502,6 +546,9 @@ const deleteProductItem = async (product) => {
                   />
                   <div>
                     <strong>{{ p.name }}</strong>
+                    <span v-if="p.isHidden" class="admin-hidden-tag">
+                      Скрыт с витрины
+                    </span>
                     <span v-if="p.colorName" class="admin-color-tag">
                       {{ p.colorName }}
                     </span>
@@ -554,6 +601,17 @@ const deleteProductItem = async (product) => {
                   </button>
                   <button
                     type="button"
+                    class="btn-icon visibility"
+                    :class="{ 'is-hidden': p.isHidden }"
+                    :disabled="Boolean(togglingVisibilityIds[p.id])"
+                    :title="p.isHidden ? 'Показать товар в каталоге' : 'Скрыть товар из каталога'"
+                    @click="toggleProductVisibility(p)"
+                  >
+                    <EyeOff v-if="p.isHidden" :size="15" />
+                    <Eye v-else :size="15" />
+                  </button>
+                  <button
+                    type="button"
                     class="btn-icon edit"
                     title="Редактировать карточку и характеристики"
                     @click="openEditProductModal(p)"
@@ -579,6 +637,7 @@ const deleteProductItem = async (product) => {
                 </div>
               </td>
             </tr>
+
           </tbody>
         </table>
       </div>
@@ -784,6 +843,48 @@ const deleteProductItem = async (product) => {
 
 .admin-table tr.row-dirty {
   background-color: #fffbeb;
+}
+.admin-table tr.row-hidden {
+  background-color: #f8fafc;
+}
+.admin-table tr.row-hidden .prod-cell {
+  opacity: 0.68;
+}
+
+.admin-hidden-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  background-color: #e2e8f0;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.btn-icon.visibility {
+  background-color: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+.btn-icon.visibility:hover {
+  background-color: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
+}
+
+.btn-icon.visibility.is-hidden {
+  background-color: #fef3c7;
+  border-color: #f59e0b;
+  color: #b45309;
+}
+
+.btn-icon.visibility.is-hidden:hover {
+  background-color: #d97706;
+  border-color: #d97706;
+  color: #ffffff;
 }
 
 .group-cell-box {

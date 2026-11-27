@@ -1,9 +1,11 @@
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
-import { Copy, ClipboardPaste, Upload, Layers } from 'lucide-vue-next'
+import { Copy, ClipboardPaste, Upload, Layers, EyeOff } from 'lucide-vue-next'
+
 import { api, resolveImageUrl } from '../../services/api.js'
 import { useBackdropClose } from '../../composables/useBackdropClose.js'
 import './admin.css'
+
 
 const props = defineProps({
   isOpen: {
@@ -55,6 +57,7 @@ const productForm = reactive({
   icon: '⌚',
   minWholesaleQty: 5,
   stock: 10,
+  isHidden: false,
   retailPrice: 0,
   wholesalePrice: 0,
   oldRetailPrice: null,
@@ -105,6 +108,7 @@ const initForm = () => {
       wholesalePrice: 16,
       minWholesaleQty: 10,
       stock: 20,
+      isHidden: false,
       oldRetailPrice: null,
       oldWholesalePrice: null,
       promoLabel: '',
@@ -144,6 +148,7 @@ const initForm = () => {
     wholesalePrice: p.wholesalePrice || 0,
     minWholesaleQty: p.minWholesaleQty || 5,
     stock: p.stock ?? 0,
+    isHidden: Boolean(p.isHidden),
     oldRetailPrice: p.oldRetailPrice || null,
     oldWholesalePrice: p.oldWholesalePrice || null,
     promoLabel: p.promoLabel || '',
@@ -310,6 +315,7 @@ const submitProductForm = async () => {
     wholesalePrice: Number(productForm.wholesalePrice),
     minWholesaleQty: Number(productForm.minWholesaleQty),
     stock: Number(productForm.stock),
+    isHidden: Boolean(productForm.isHidden),
     attributes: cleanAttributes,
     oldRetailPrice: productForm.oldRetailPrice ? Number(productForm.oldRetailPrice) : null,
     oldWholesalePrice: productForm.oldWholesalePrice ? Number(productForm.oldWholesalePrice) : null,
@@ -517,7 +523,21 @@ const submitProductForm = async () => {
           </div>
         </div>
 
+        <div class="visibility-editor-box" :class="{ active: productForm.isHidden }">
+          <label class="visibility-check-label">
+            <input v-model="productForm.isHidden" type="checkbox" />
+            <EyeOff :size="16" />
+            <div>
+              <strong>Скрыть товар из каталога (витрины)</strong>
+              <span>
+                Карточка останется в базе данных и админке, но покупатели не увидят её на сайте и не смогут оформить заказ.
+              </span>
+            </div>
+          </label>
+        </div>
+
         <div class="promo-editor-box">
+
           <div class="promo-editor-title">Скидка и акция (необязательно)</div>
           <div class="form-grid-4">
             <div class="f-group">
@@ -764,4 +784,48 @@ const submitProductForm = async () => {
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+.visibility-editor-box {
+  background-color: #f8fafc;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 11px 14px;
+  transition: all 0.15s ease;
+}
+
+.visibility-editor-box.active {
+  background-color: #fef3c7;
+  border-color: #f59e0b;
+}
+
+.visibility-check-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  color: #0f172a;
+}
+
+.visibility-check-label input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+  accent-color: #d97706;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.visibility-check-label strong {
+  display: block;
+  font-size: 13px;
+}
+
+.visibility-check-label span {
+  display: block;
+  font-size: 11.5px;
+  color: #475569;
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
 </style>

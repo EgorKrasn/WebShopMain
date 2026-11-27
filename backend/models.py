@@ -56,7 +56,12 @@ class Product(Base):
     # <-- НОВОЕ: Скидки и акции
     old_retail_price = Column(Float, nullable=True)
     old_wholesale_price = Column(Float, nullable=True)
+
+    old_retail_price = Column(Float, nullable=True)
+    old_wholesale_price = Column(Float, nullable=True)
     promo_label = Column(String, nullable=True)
+    is_hidden = Column(Boolean, default=False, nullable=False)
+
 
 
 

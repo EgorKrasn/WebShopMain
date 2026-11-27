@@ -51,6 +51,9 @@ def ensure_product_promo_columns():
             conn.execute(text("ALTER TABLE products ADD COLUMN old_wholesale_price FLOAT"))
         if "promo_label" not in cols:
             conn.execute(text("ALTER TABLE products ADD COLUMN promo_label VARCHAR"))
+        if "is_hidden" not in cols:
+            conn.execute(text("ALTER TABLE products ADD COLUMN is_hidden BOOLEAN DEFAULT 0 NOT NULL"))
+
 
 ensure_product_promo_columns()
 
@@ -241,13 +244,23 @@ seed_admin_user()
 
 @app.get("/api/products")
 @limiter.limit("60/minute")
-def get_products(request: Request, db: Session = Depends(get_db)):
-    items = db.query(models.Product).all()
+def get_products(
+    request: Request,
+    current_user: models.User | None = Depends(security.get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    is_admin = bool(current_user and current_user.role == "admin")
+    query = db.query(models.Product)
+    if not is_admin:
+        query = query.filter(models.Product.is_hidden == False)
+
+    items = query.all()
 
     groups = {}
     for p in items:
         if p.group_id:
             groups.setdefault(p.group_id, []).append(p)
+
 
     result = []
     for p in items:
@@ -306,6 +319,11 @@ def get_products(request: Request, db: Session = Depends(get_db)):
             "minWholesaleQty": p.min_wholesale_qty,
             "stock": p.stock,
             "variants": variants,
+            "minWholesaleQty": p.min_wholesale_qty,
+            "stock": p.stock,
+            "isHidden": bool(p.is_hidden),
+            "variants": variants,
+
         })
 
 
@@ -492,6 +510,10 @@ def create_order(
         if not product:
             db.rollback()
             raise HTTPException(status_code=404, detail=f"Товар «{item.name}» не найден в каталоге")
+        if product.is_hidden:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=f"Товар «{product.name}» временно снят с продажи")
+
         if product.stock < item.quantity:
             db.rollback()
             raise HTTPException(
@@ -1003,7 +1025,7 @@ def admin_create_product(
             old_retail_price=float(payload["oldRetailPrice"]) if payload.get("oldRetailPrice") else None,
             old_wholesale_price=float(payload["oldWholesalePrice"]) if payload.get("oldWholesalePrice") else None,
             promo_label=(payload.get("promoLabel") or "").strip() or None,
-
+            is_hidden=bool(payload.get("isHidden", False)),
         )
         db.add(new_product)
         db.commit()
@@ -1012,6 +1034,7 @@ def admin_create_product(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Ошибка сохранения в БД: {str(e)}")
+
 
 
 
@@ -1062,10 +1085,32 @@ def admin_update_product(
         product.old_wholesale_price = float(val) if val not in (None, "", 0, "0") else None
     if "promoLabel" in payload:
         product.promo_label = (payload["promoLabel"] or "").strip() or None
-
+    if "isHidden" in payload:
+        product.is_hidden = bool(payload["isHidden"])
 
     db.commit()
     return {"ok": True}
+
+
+@app.patch("/api/admin/products/{product_id}/visibility")
+def admin_toggle_product_visibility(
+    product_id: int,
+    payload: dict,
+    admin: models.User = Depends(security.get_current_admin_required),
+    db: Session = Depends(get_db)
+):
+    product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Товар не найден")
+
+    if "isHidden" in payload:
+        product.is_hidden = bool(payload["isHidden"])
+    else:
+        product.is_hidden = not bool(product.is_hidden)
+
+    db.commit()
+    return {"ok": True, "id": product.id, "isHidden": bool(product.is_hidden)}
+
 
 
 @app.delete("/api/admin/products/{product_id}")
@@ -1398,8 +1443,10 @@ def admin_export_backup(
                 "promo_label": p.promo_label,
                 "min_wholesale_qty": p.min_wholesale_qty,
                 "stock": p.stock,
+                "is_hidden": bool(p.is_hidden),
             }
             for p in products
+
         ],
     }
 
@@ -1530,8 +1577,10 @@ async def admin_import_backup(
                         promo_label=(p.get("promo_label") or "").strip() or None,
                         min_wholesale_qty=int(p.get("min_wholesale_qty") or 5),
                         stock=int(p.get("stock") or 0),
+                        is_hidden=bool(p.get("is_hidden", False)),
                     )
                 )
+
 
 
             db.commit()
