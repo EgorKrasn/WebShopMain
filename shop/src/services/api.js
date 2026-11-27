@@ -175,6 +175,19 @@ export const api = {
 			method: 'DELETE',
 		})
 	},
+	adminBulkUpdateProducts(payload) {
+		return request('/admin/products/bulk-update', {
+			method: 'POST',
+			body: JSON.stringify(payload),
+		})
+	},
+	adminBulkCreateProducts(payload) {
+		return request('/admin/products/bulk-create', {
+			method: 'POST',
+			body: JSON.stringify(payload),
+		})
+	},
+
 	async adminUploadImage(file) {
 		const formData = new FormData()
 		formData.append('file', file)

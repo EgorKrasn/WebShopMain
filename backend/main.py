@@ -1084,6 +1084,169 @@ def admin_delete_product(
 def get_real_client_ip(request: Request) -> str:
     return request.headers.get("X-Real-IP") or get_remote_address(request)
 
+@app.post("/api/admin/products/bulk-update")
+def admin_bulk_update_products(
+    payload: dict,
+    admin: models.User = Depends(security.get_current_admin_required),
+    db: Session = Depends(get_db)
+):
+    """
+    Массовое обновление цен и остатков по артикулу (SKU).
+    stockMode: 'add' (прибавить к текущему) | 'replace' (полностью заменить)
+    """
+    stock_mode = payload.get("stockMode", "add")
+    if stock_mode not in ("add", "replace"):
+        raise HTTPException(status_code=400, detail="Некорректный режим обновления остатков")
+
+    rows = payload.get("items")
+    if not isinstance(rows, list) or len(rows) == 0:
+        raise HTTPException(status_code=400, detail="Список строк для обновления пуст")
+
+    updated_count = 0
+    not_found_skus = []
+
+    try:
+        for row in rows:
+            sku = str(row.get("sku") or "").strip()
+            if not sku:
+                continue
+
+            product = db.query(models.Product).filter(models.Product.sku == sku).first()
+            if not product:
+                not_found_skus.append(sku)
+                continue
+
+            changed = False
+
+            if row.get("retailPrice") is not None and row.get("retailPrice") != "":
+                product.retail_price = max(0.0, round(float(row["retailPrice"]), 2))
+                changed = True
+
+            if row.get("wholesalePrice") is not None and row.get("wholesalePrice") != "":
+                product.wholesale_price = max(0.0, round(float(row["wholesalePrice"]), 2))
+                changed = True
+
+            if row.get("stockValue") is not None and row.get("stockValue") != "":
+                val = int(float(row["stockValue"]))
+                if stock_mode == "add":
+                    product.stock = max(0, (product.stock or 0) + val)
+                else:
+                    product.stock = max(0, val)
+                changed = True
+
+            if changed:
+                updated_count += 1
+
+        db.commit()
+    except ValueError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Ошибка формата чисел в таблице Excel")
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Ошибка массового обновления: {str(e)}")
+
+    return {
+        "ok": True,
+        "updatedCount": updated_count,
+        "notFoundSkus": not_found_skus,
+    }
+
+
+@app.post("/api/admin/products/bulk-create")
+def admin_bulk_create_products(
+    payload: dict,
+    admin: models.User = Depends(security.get_current_admin_required),
+    db: Session = Depends(get_db)
+):
+    """
+    Массовое добавление новых карточек товаров (без фото) из шаблона Excel.
+    """
+    rows = payload.get("items")
+    if not isinstance(rows, list) or len(rows) == 0:
+        raise HTTPException(status_code=400, detail="Список товаров для добавления пуст")
+
+    existing_skus = {
+        row[0].strip().lower()
+        for row in db.query(models.Product.sku).all()
+        if row[0]
+    }
+    valid_categories = {
+        row[0].strip()
+        for row in db.query(models.Category.name).all()
+        if row[0]
+    }
+
+    created_count = 0
+    skipped = []
+    seen_in_batch = set()
+
+    try:
+        for idx, row in enumerate(rows, start=1):
+            sku = str(row.get("sku") or "").strip()
+            name = str(row.get("name") or "").strip()
+            category = str(row.get("category") or "").strip()
+
+            if not sku or not name:
+                skipped.append(f"Строка {idx}: не указан артикул или наименование")
+                continue
+
+            sku_lower = sku.lower()
+            if sku_lower in existing_skus or sku_lower in seen_in_batch:
+                skipped.append(f"Арт. {sku}: уже существует")
+                continue
+
+            if not category or (valid_categories and category not in valid_categories):
+                skipped.append(f"Арт. {sku}: категория «{category or 'пусто'}» не найдена в каталоге")
+                continue
+
+            retail_price = max(0.0, round(float(row.get("retailPrice") or 0), 2))
+            wholesale_price = max(0.0, round(float(row.get("wholesalePrice") or 0), 2))
+            min_wholesale_qty = max(1, int(float(row.get("minWholesaleQty") or 5)))
+            stock = max(0, int(float(row.get("stock") or 0)))
+
+            old_retail_raw = row.get("oldRetailPrice")
+            old_wholesale_raw = row.get("oldWholesalePrice")
+            old_retail = round(float(old_retail_raw), 2) if old_retail_raw not in (None, "", 0, "0") else None
+            old_wholesale = round(float(old_wholesale_raw), 2) if old_wholesale_raw not in (None, "", 0, "0") else None
+
+            new_product = models.Product(
+                sku=sku,
+                group_id=(str(row.get("groupId") or "").strip()) or None,
+                color_name=(str(row.get("colorName") or "").strip()) or None,
+                category=category,
+                subcategory=(str(row.get("subcategory") or "").strip()) or None,
+                name=name,
+                specs=(str(row.get("specs") or "").strip()),
+                description=(str(row.get("description") or "").strip()) or None,
+                icon="⌚",
+                image=None,
+                retail_price=retail_price,
+                wholesale_price=wholesale_price,
+                old_retail_price=old_retail,
+                old_wholesale_price=old_wholesale,
+                promo_label=(str(row.get("promoLabel") or "").strip()) or None,
+                min_wholesale_qty=min_wholesale_qty,
+                stock=stock,
+            )
+            db.add(new_product)
+            seen_in_batch.add(sku_lower)
+            created_count += 1
+
+        db.commit()
+    except ValueError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Ошибка числового значения (цена, остаток или мин. партия)")
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Ошибка массового создания товаров: {str(e)}")
+
+    return {
+        "ok": True,
+        "createdCount": created_count,
+        "skipped": skipped,
+    }
+
+
 
 
 # 8. Создать категорию

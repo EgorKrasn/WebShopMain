@@ -8,8 +8,10 @@ const ALLOWED_ADMIN_SECTIONS = [
 	'archive',
 	'products',
 	'categories',
+	'bulk',
 	'backup',
 ]
+
 
 const router = createRouter({
 	history: createWebHistory(),

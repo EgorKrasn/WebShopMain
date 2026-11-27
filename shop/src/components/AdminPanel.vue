@@ -13,7 +13,8 @@ import {
   FolderTree,
   Archive,
   Rocket,
-  FileArchive
+  FileArchive,
+  FileSpreadsheet
 } from 'lucide-vue-next'
 
 import AdminWholesaleTab from './admin/AdminWholesaleTab.vue'
@@ -22,6 +23,8 @@ import AdminArchiveTab from './admin/AdminArchiveTab.vue'
 import AdminProductsTab from './admin/AdminProductsTab.vue'
 import AdminCategoriesTab from './admin/AdminCategoriesTab.vue'
 import AdminBackupTab from './admin/AdminBackupTab.vue'
+import AdminBulkTab from './admin/AdminBulkTab.vue'
+
 
 const emit = defineEmits(['close', 'categories-updated', 'products-updated', 'catalog-restored'])
 
@@ -149,7 +152,19 @@ const adminSections = computed(() => [
     badge: '',
     badgeType: 'neutral',
     meta: 'Формат: .ZIP (БД + uploads)'
-  }
+  },
+  {
+    id: 'bulk',
+    group: 'Каталог и склад',
+    icon: markRaw(FileSpreadsheet),
+    accent: 'emerald',
+    title: 'Массовые операции (Excel)',
+    description: 'Пакетное обновление цен, пополнение или замена остатков и создание новых карточек по шаблону.',
+    badge: 'Excel',
+    badgeType: 'info',
+    meta: 'Импорт / шаблон .XLSX'
+  },
+
 ])
 const activeSectionTitle = computed(() => {
   const found = adminSections.value.find((s) => s.id === activeTab.value)
@@ -551,6 +566,16 @@ const handleCatalogRestored = async () => {
       @toast="showToast"
       @error="setError"
     />
+
+    <AdminBulkTab
+      v-else-if="activeTab === 'bulk'"
+      :products="allProducts"
+      :categories="allCategories"
+      @updated="handleProductsUpdated"
+      @toast="showToast"
+      @error="setError"
+    />
+
 
     <AdminCategoriesTab
       v-else-if="activeTab === 'categories'"
