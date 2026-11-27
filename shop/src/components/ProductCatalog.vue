@@ -6,6 +6,9 @@ import { api, resolveImageUrl } from '../services/api.js'
 import {
   Building2,
   FileSpreadsheet,
+  Mail,
+  Check,
+  Loader2,
   Search,
   X,
   ShoppingCart,
@@ -14,6 +17,8 @@ import {
   ChevronRight,
   ArrowUp
 } from 'lucide-vue-next'
+import { saveWorkbookCrossPlatform, workbookToBlob } from '../utils/excelExport.js'
+
 
 
 
@@ -28,6 +33,11 @@ const props = defineProps({
     type: String,
     default: 'retail'
   },
+  currentUser: {
+    type: Object,
+    default: null
+  },
+
   cartItems: {
     type: Array,
     default: () => []
@@ -301,10 +311,9 @@ const handleDirectQtyInput = (productId, event) => {
   }
 }
 
-const exportPriceListToExcel = () => {
-  if (!props.products || props.products.length === 0) return
+const buildPriceListWorkbook = () => {
+  if (!props.products || props.products.length === 0) return null
 
-  // 1. Формируем строки таблицы с понятными заголовками
   const rows = props.products.map((p) => ({
     'Артикул': p.sku || '',
     'Категория': p.category || '',
@@ -317,27 +326,61 @@ const exportPriceListToExcel = () => {
     'РРЦ / Розница (BYN)': Number(p.retailPrice || 0)
   }))
 
-  // 2. Создаём лист Excel из массива объектов
   const worksheet = XLSX.utils.json_to_sheet(rows)
 
-  // 3. Автоматически рассчитываем ширину каждой колонки под самый длинный текст
   const headers = Object.keys(rows[0])
   worksheet['!cols'] = headers.map((header) => {
     const maxDataLength = rows.reduce((maxLen, row) => {
       const cellText = String(row[header] ?? '')
       return Math.max(maxLen, cellText.length)
     }, header.length)
-
-    // Добавляем запас +4 символа, чтобы текст не упирался в границы ячеек
     return { wch: maxDataLength + 4 }
   })
 
-  // 4. Создаём книгу Excel и скачиваем её как настоящий .xlsx файл
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Прайс-лист Сандринтайм')
+  return workbook
+}
+
+const exportPriceListToExcel = async () => {
+  const workbook = buildPriceListWorkbook()
+  if (!workbook) return
 
   const today = new Date().toISOString().slice(0, 10)
-  XLSX.writeFile(workbook, `Price_SandrinTime_${today}.xlsx`)
+  await saveWorkbookCrossPlatform(workbook, `Price_SandrinTime_${today}.xlsx`)
+}
+
+const emailSendState = ref('idle') // 'idle' | 'sending' | 'sent' | 'error'
+const emailSendMessage = ref('')
+
+const emailPriceListToUser = async () => {
+  if (emailSendState.value === 'sending') return
+  const workbook = buildPriceListWorkbook()
+  if (!workbook) return
+
+  const today = new Date().toISOString().slice(0, 10)
+  const filename = `Price_SandrinTime_${today}.xlsx`
+  const blob = workbookToBlob(workbook)
+
+  emailSendState.value = 'sending'
+  emailSendMessage.value = ''
+
+  try {
+    const res = await api.sendExcelToEmail(blob, filename, 'pricelist')
+    emailSendState.value = 'sent'
+    emailSendMessage.value = `Отправлено на ${res.email}`
+    setTimeout(() => {
+      emailSendState.value = 'idle'
+      emailSendMessage.value = ''
+    }, 5000)
+  } catch (err) {
+    emailSendState.value = 'error'
+    emailSendMessage.value = err.message
+    setTimeout(() => {
+      emailSendState.value = 'idle'
+      emailSendMessage.value = ''
+    }, 5000)
+  }
 }
 
 
@@ -376,7 +419,28 @@ const exportPriceListToExcel = () => {
               <FileSpreadsheet :size="16" />
               <span>Скачать прайс (Excel)</span>
             </button>
+            <button
+              v-if="currentUser?.email"
+              type="button"
+              class="btn-email-price"
+              :class="{ sent: emailSendState === 'sent', error: emailSendState === 'error' }"
+              :disabled="emailSendState === 'sending'"
+              @click="emailPriceListToUser"
+              :title="`Отправить прайс-лист на ${currentUser.email}`"
+            >
+              <Loader2 v-if="emailSendState === 'sending'" :size="16" class="spin-icon" />
+              <Check v-else-if="emailSendState === 'sent'" :size="16" />
+              <Mail v-else :size="16" />
+              <span>
+                {{
+                  emailSendState === 'sending'
+                    ? 'Отправка...'
+                    : emailSendMessage || 'На Email'
+                }}
+              </span>
+            </button>
           </div>
+
         </div>
 
         <!-- Строка поиска для ПК -->
@@ -1356,9 +1420,62 @@ const exportPriceListToExcel = () => {
 }
 
 
+.btn-email-price {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1.5px solid #0f172a;
+  background-color: #0f172a;
+  color: #A3D2F9;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.18s ease;
+}
+
+.btn-email-price:hover:not(:disabled) {
+  background-color: #1e293b;
+}
+
+.btn-email-price:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.btn-email-price.sent {
+  border-color: #16a34a;
+  background-color: #dcfce7;
+  color: #15803d;
+}
+
+.btn-email-price.error {
+  border-color: #dc2626;
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 
 </style>
+
+
+
+
+
+
+
 
 <style>
 /* --- ПАГИНАЦИЯ КАТАЛОГА --- */

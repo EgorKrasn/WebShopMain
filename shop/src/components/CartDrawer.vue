@@ -13,9 +13,13 @@ import {
   FileSpreadsheet,
   ArrowRight,
   Handshake,
-  Store
+  Store,
+  Mail,
+  Check,
+  Loader2
 } from 'lucide-vue-next'
 import ConsentCheckbox from './ConsentCheckbox.vue'
+import { saveWorkbookCrossPlatform, workbookToBlob  } from '../utils/excelExport.js'
 
 
 
@@ -249,11 +253,10 @@ function addToCart(product, variant) {
 }
 
 
-const exportCartToExcel = () => {
-  if (!isWholesale.value || props.items.length === 0) return
+const buildCartSmetaWorkbook = () => {
+  if (!isWholesale.value || props.items.length === 0) return null
 
   const today = new Date().toLocaleDateString('ru-RU')
-  const fileDate = new Date().toISOString().slice(0, 10)
 
   const sheetRows = [
     ['ПРЕДВАРИТЕЛЬНАЯ СМЕТА ЗАКАЗА', '', '', 'Дата:', today],
@@ -301,7 +304,48 @@ const exportCartToExcel = () => {
 
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Смета заказа')
-  XLSX.writeFile(workbook, `Smeta_SandrinTime_${fileDate}.xlsx`)
+  return workbook
+}
+
+const exportCartToExcel = async () => {
+  const workbook = buildCartSmetaWorkbook()
+  if (!workbook) return
+
+  const fileDate = new Date().toISOString().slice(0, 10)
+  await saveWorkbookCrossPlatform(workbook, `Smeta_SandrinTime_${fileDate}.xlsx`)
+}
+
+const smetaEmailState = ref('idle') // 'idle' | 'sending' | 'sent' | 'error'
+const smetaEmailMessage = ref('')
+
+const emailCartSmetaToUser = async () => {
+  if (smetaEmailState.value === 'sending') return
+  const workbook = buildCartSmetaWorkbook()
+  if (!workbook) return
+
+  const fileDate = new Date().toISOString().slice(0, 10)
+  const filename = `Smeta_SandrinTime_${fileDate}.xlsx`
+  const blob = workbookToBlob(workbook)
+
+  smetaEmailState.value = 'sending'
+  smetaEmailMessage.value = ''
+
+  try {
+    const res = await api.sendExcelToEmail(blob, filename, 'smeta')
+    smetaEmailState.value = 'sent'
+    smetaEmailMessage.value = `Смета отправлена на ${res.email}`
+    setTimeout(() => {
+      smetaEmailState.value = 'idle'
+      smetaEmailMessage.value = ''
+    }, 5000)
+  } catch (err) {
+    smetaEmailState.value = 'error'
+    smetaEmailMessage.value = err.message
+    setTimeout(() => {
+      smetaEmailState.value = 'idle'
+      smetaEmailMessage.value = ''
+    }, 5000)
+  }
 }
 
 </script>
@@ -414,16 +458,38 @@ const exportCartToExcel = () => {
             <span class="total-amount">{{ formatPrice(productsTotal) }} BYN</span>
           </div>
 
-          <button
-            v-if="isWholesale"
-            type="button"
-            class="btn-export-smeta"
-            style="display: inline-flex; align-items: center; justify-content: center; gap: 6px;"
-            @click="exportCartToExcel"
-          >
-            <FileSpreadsheet :size="16" />
-            <span>Скачать смету (Excel)</span>
-          </button>
+          <div v-if="isWholesale" class="smeta-actions-row">
+            <button
+              type="button"
+              class="btn-export-smeta"
+              @click="exportCartToExcel"
+            >
+              <FileSpreadsheet :size="16" />
+              <span>Скачать смету</span>
+            </button>
+
+            <button
+              v-if="currentUser?.email"
+              type="button"
+              class="btn-email-smeta"
+              :class="{ sent: smetaEmailState === 'sent', error: smetaEmailState === 'error' }"
+              :disabled="smetaEmailState === 'sending'"
+              @click="emailCartSmetaToUser"
+              :title="`Отправить смету на ${currentUser.email}`"
+            >
+              <Loader2 v-if="smetaEmailState === 'sending'" :size="16" class="spin-icon" />
+              <Check v-else-if="smetaEmailState === 'sent'" :size="16" />
+              <Mail v-else :size="16" />
+              <span>
+                {{
+                  smetaEmailState === 'sending'
+                    ? 'Отправка...'
+                    : smetaEmailMessage || 'На Email'
+                }}
+              </span>
+            </button>
+          </div>
+
 
           <button
             type="button"
@@ -1326,5 +1392,67 @@ const exportCartToExcel = () => {
   color: #ffffff;
 }
 
+.smeta-actions-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+}
+
+.smeta-actions-row .btn-export-smeta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.btn-email-smeta {
+  height: 40px;
+  width: 100%;
+  padding: 0 10px;
+  border-radius: 12px;
+  border: 1.5px solid #0f172a;
+  background-color: #0f172a;
+  color: #A3D2F9;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.btn-email-smeta:hover:not(:disabled) {
+  background-color: #1e293b;
+}
+
+.btn-email-smeta:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.btn-email-smeta.sent {
+  border-color: #16a34a;
+  background-color: #dcfce7;
+  color: #15803d;
+}
+
+.btn-email-smeta.error {
+  border-color: #dc2626;
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 </style>

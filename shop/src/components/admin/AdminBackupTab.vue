@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
-import { HardDriveDownload, HardDriveUpload, AlertTriangle } from 'lucide-vue-next'
+import { HardDriveDownload, HardDriveUpload, AlertTriangle, Send, Mail } from 'lucide-vue-next'
+
 import { api } from '../../services/api.js'
 import './admin.css'
 
@@ -63,6 +64,36 @@ const handleImportBackupFile = async (event) => {
     isImportingBackup.value = false
   }
 }
+
+const isTestingTelegram = ref(false)
+const isTestingEmail = ref(false)
+
+const handleTestTelegram = async () => {
+  isTestingTelegram.value = true
+  emit('error', '')
+  try {
+    const res = await api.adminTestTelegram()
+    emit('toast', res.message || 'Тестовое уведомление отправлено в Telegram')
+  } catch (err) {
+    emit('error', err.message || 'Не удалось отправить тестовое сообщение в Telegram')
+  } finally {
+    isTestingTelegram.value = false
+  }
+}
+
+const handleTestEmail = async () => {
+  isTestingEmail.value = true
+  emit('error', '')
+  try {
+    await api.adminTestEmail()
+    emit('toast', 'Тестовое письмо отправлено на Email администратора')
+  } catch (err) {
+    emit('error', err.message || 'Не удалось отправить тестовое письмо')
+  } finally {
+    isTestingEmail.value = false
+  }
+}
+
 </script>
 
 <template>
@@ -142,6 +173,44 @@ const handleImportBackupFile = async (event) => {
         </button>
       </article>
     </div>
+
+    <article class="backup-card notify-card" style="margin-top: 18px;">
+      <div class="backup-card-head">
+        <div class="hub-icon-box sky">
+          <Send :size="24" :stroke-width="2.1" />
+        </div>
+        <div>
+          <h2 class="backup-title">Проверка уведомлений менеджера (Telegram и Email)</h2>
+          <p class="backup-sub">
+            Отправка тестового сигнала для проверки ключей <code>TELEGRAM_BOT_TOKEN</code>,
+            <code>TELEGRAM_CHAT_ID</code> и SMTP-почты из <code>backend/.env</code>
+          </p>
+        </div>
+      </div>
+
+      <div class="notify-actions-row">
+        <button
+          type="button"
+          class="btn-test-telegram"
+          :disabled="isTestingTelegram"
+          @click="handleTestTelegram"
+        >
+          <Send :size="16" />
+          <span>{{ isTestingTelegram ? 'Отправка в Telegram...' : 'Тест Telegram-бота' }}</span>
+        </button>
+
+        <button
+          type="button"
+          class="btn-test-email"
+          :disabled="isTestingEmail"
+          @click="handleTestEmail"
+        >
+          <Mail :size="16" />
+          <span>{{ isTestingEmail ? 'Отправка письма...' : 'Тест Email-уведомлений' }}</span>
+        </button>
+      </div>
+    </article>
+
   </div>
 </template>
 
@@ -286,4 +355,48 @@ const handleImportBackupFile = async (event) => {
     grid-template-columns: 1fr;
   }
 }
+
+.hub-icon-box.sky {
+  background-color: #e0f2fe;
+  color: #0284c7;
+}
+
+.notify-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.btn-test-telegram,
+.btn-test-email {
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 11px;
+  border: none;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.btn-test-telegram {
+  background-color: #0284c7;
+  color: #ffffff;
+}
+
+.btn-test-email {
+  background-color: #0f172a;
+  color: #A3D2F9;
+}
+
+.btn-test-telegram:disabled,
+.btn-test-email:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 </style>

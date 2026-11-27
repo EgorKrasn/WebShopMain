@@ -1,4 +1,6 @@
-from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, DateTime, JSON # <-- добавили JSON
+
+from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, DateTime, JSON, Boolean
+
 
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -111,3 +113,14 @@ class Category(Base):
     icon = Column(String, default="⌚", nullable=False)
     subcategories = Column(JSON, default=list, nullable=False)
     sort_order = Column(Integer, default=0, nullable=False)
+
+class PasswordResetCode(Base):
+    __tablename__ = "password_reset_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, index=True, nullable=False)
+    code = Column(String(6), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+

@@ -8,7 +8,13 @@ import uuid
 import zipfile
 from datetime import datetime
 from dotenv import load_dotenv
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Request
+import secrets
+from datetime import datetime, timedelta
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Request, BackgroundTasks
+import email_service
+import telegram_service
+
+
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -336,7 +342,13 @@ def login_user(request: Request, payload: schemas.LoginRequest, db: Session = De
 
 @app.post("/api/auth/register")
 @limiter.limit("3/hour")
-def register_user(request: Request, payload: schemas.RegisterRequest, db: Session = Depends(get_db)):
+def register_user(
+    request: Request,
+    payload: schemas.RegisterRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+
     existing = db.query(models.User).filter(models.User.email == payload.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Пользователь с таким email уже зарегистрирован")
@@ -364,8 +376,20 @@ def register_user(request: Request, payload: schemas.RegisterRequest, db: Sessio
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    if is_wholesale_request:
+        background_tasks.add_task(
+            telegram_service.send_wholesale_request_telegram,
+            company_name=new_user.company_name or "",
+            unp=new_user.unp or "",
+            full_name=new_user.full_name,
+            email=new_user.email,
+            phone=new_user.phone or "—",
+            legal_address=new_user.legal_address,
+            source="Регистрация нового аккаунта",
+        )
 
     return build_auth_response(new_user)
+
 
 
 @app.patch("/api/auth/role")
@@ -373,9 +397,11 @@ def register_user(request: Request, payload: schemas.RegisterRequest, db: Sessio
 def switch_user_role(
     request: Request,
     payload: schemas.SwitchRoleRequest,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(security.get_current_user_required),
     db: Session = Depends(get_db)
 ):
+
     if payload.role == "wholesale":
         clean_unp = re.sub(r"\D", "", payload.unp or "")
         if len(clean_unp) != 9:
@@ -396,8 +422,20 @@ def switch_user_role(
 
     db.commit()
     db.refresh(current_user)
+    if payload.role == "wholesale" and current_user.wholesale_status == "pending":
+        background_tasks.add_task(
+            telegram_service.send_wholesale_request_telegram,
+            company_name=current_user.company_name or "",
+            unp=current_user.unp or "",
+            full_name=current_user.full_name,
+            email=current_user.email,
+            phone=current_user.phone or "—",
+            legal_address=current_user.legal_address,
+            source="Запрос статуса юрлица из личного кабинета",
+        )
 
     return build_auth_response(current_user)
+
 
 
 #4. Создание новой заявки (защита от подмены цен и спама заказами)
@@ -407,6 +445,7 @@ def switch_user_role(
 def create_order(
     request: Request,
     payload: schemas.OrderCreateRequest,
+    background_tasks: BackgroundTasks,
     current_user: models.User | None = Depends(security.get_current_user_optional),
     db: Session = Depends(get_db)
 ):
@@ -485,6 +524,44 @@ def create_order(
     new_order.products_total_byn = round(calculated_total, 2)
     db.commit()
     db.refresh(new_order)
+
+    new_order.products_total_byn = round(calculated_total, 2)
+    db.commit()
+    db.refresh(new_order)
+
+    # Формируем текст доставки для письма-чека
+    if effective_delivery_method == "europost":
+        delivery_text = f"Европочта (г. {new_order.delivery_city}, {new_order.delivery_office})"
+    elif effective_delivery_method == "manager":
+        delivery_text = "Опт (обсуждается с менеджером)"
+    else:
+        delivery_text = "Самовывоз (ЭКСПОБЕЛ, пав. 218/219)"
+
+    order_items_snapshot = [
+        {
+            "sku": i.sku,
+            "name": i.name,
+            "quantity": i.quantity,
+            "unit_price": i.unit_price,
+        }
+        for i in new_order.items
+    ]
+
+    background_tasks.add_task(
+        telegram_service.send_new_order_telegram,
+        order_number=new_order.number,
+        created_at_str=new_order.created_at.strftime("%d.%m.%Y %H:%M"),
+        role=new_order.role,
+        recipient_name=new_order.recipient_name,
+        recipient_phone=new_order.recipient_phone,
+        delivery_text=delivery_text,
+        total_byn=new_order.products_total_byn,
+        items=order_items_snapshot,
+        company_name=new_order.company_name,
+        unp=new_order.unp,
+        comment=new_order.comment,
+    )
+
 
     return {
         "id": new_order.id,
@@ -1321,3 +1398,180 @@ async def admin_import_backup(
         "productsCount": len(products_data),
         "filesCount": len(upload_entries),
     }
+
+
+@app.post("/api/auth/forgot-password")
+@limiter.limit("3/15minute")
+def forgot_password(
+    request: Request,
+    payload: schemas.ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    clean_email = payload.email.strip().lower()
+    user = db.query(models.User).filter(models.User.email == clean_email).first()
+
+    # Всегда возвращаем одинаковый ответ, чтобы нельзя было перебором проверять наличие email в базе
+    generic_msg = "Если аккаунт с таким email зарегистрирован, мы отправили на него 6-значный код восстановления."
+
+    if not user:
+        return {"ok": True, "message": generic_msg}
+
+    # Помечаем старые неиспользованные коды для этого email как неактуальные
+    db.query(models.PasswordResetCode).filter(
+        models.PasswordResetCode.email == clean_email,
+        models.PasswordResetCode.used == False
+    ).update({"used": True})
+
+    code = f"{secrets.randbelow(1000000):06d}"
+    reset_entry = models.PasswordResetCode(
+        email=clean_email,
+        code=code,
+        expires_at=datetime.now() + timedelta(minutes=15),
+        used=False,
+    )
+    db.add(reset_entry)
+    db.commit()
+
+    background_tasks.add_task(
+        email_service.send_password_reset_code_email,
+        to_email=user.email,
+        full_name=user.full_name,
+        code=code,
+    )
+
+    return {"ok": True, "message": generic_msg}
+
+
+@app.post("/api/auth/reset-password")
+@limiter.limit("5/15minute")
+def reset_password(
+    request: Request,
+    payload: schemas.ResetPasswordRequest,
+    db: Session = Depends(get_db)
+):
+    clean_email = payload.email.strip().lower()
+    now = datetime.now()
+
+    reset_entry = (
+        db.query(models.PasswordResetCode)
+        .filter(
+            models.PasswordResetCode.email == clean_email,
+            models.PasswordResetCode.code == payload.code,
+            models.PasswordResetCode.used == False,
+            models.PasswordResetCode.expires_at >= now,
+        )
+        .order_by(models.PasswordResetCode.id.desc())
+        .first()
+    )
+
+    if not reset_entry:
+        raise HTTPException(status_code=400, detail="Неверный или просроченный код восстановления")
+
+    user = db.query(models.User).filter(models.User.email == clean_email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    user.hashed_password = pwd_context.hash(payload.new_password)
+    reset_entry.used = True
+    db.commit()
+
+    return {"ok": True, "message": "Пароль успешно изменён! Теперь вы можете войти с новым паролем."}
+
+
+@app.post("/api/admin/email/test")
+def admin_test_email(
+    admin: models.User = Depends(security.get_current_admin_required)
+):
+    email_service.send_email(
+        to_email=admin.email,
+        subject="Тест почтового сервиса — СандринТайм",
+        html_body="<p>Почтовый сервис интернет-магазина <strong>«СандринТайм»</strong> работает корректно!</p>",
+        text_body="Почтовый сервис интернет-магазина «СандринТайм» работает корректно!",
+    )
+    return {"ok": True}
+
+@app.post("/api/admin/telegram/test")
+def admin_test_telegram(
+    admin: models.User = Depends(security.get_current_admin_required)
+):
+    ok, detail = telegram_service.send_telegram_message(
+        "✅ <b>Тест уведомлений «СандринТайм»</b>\n\n"
+        "Telegram-бот успешно подключён! Сюда будут мгновенно приходить новые заказы и заявки юрлиц по УНП."
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"Ошибка Telegram API: {detail}")
+    return {"ok": True, "message": detail}
+
+
+
+MAX_EXCEL_EMAIL_BYTES = 10 * 1024 * 1024  # 10 МБ максимум на вложение
+XLSX_ZIP_SIGNATURE = b"PK\x03\x04"
+
+
+@app.post("/api/email/send-excel")
+@limiter.limit("5/10minute")
+async def send_excel_to_user_email(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    doc_type: str = "pricelist",  # 'pricelist' или 'smeta'
+    current_user: models.User = Depends(security.get_current_user_required),
+):
+    if not current_user.email:
+        raise HTTPException(status_code=400, detail="В вашем профиле не указан Email")
+
+    raw_name = (file.filename or "SandrinTime.xlsx").strip()
+    if not raw_name.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Допускается отправка только файлов в формате .xlsx")
+
+    # Очищаем имя файла от небезопасных символов
+    safe_filename = re.sub(r"[^A-Za-zА-Яа-яЁё0-9._-]", "_", raw_name)
+    if not safe_filename.lower().endswith(".xlsx"):
+        safe_filename += ".xlsx"
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Файл пустой")
+    if len(content) > MAX_EXCEL_EMAIL_BYTES:
+        raise HTTPException(status_code=400, detail="Размер файла превышает 10 МБ")
+
+    # Проверяем сигнатуру ZIP (.xlsx — это ZIP-архив OpenXML)
+    if not content.startswith(XLSX_ZIP_SIGNATURE):
+        raise HTTPException(status_code=400, detail="Файл повреждён или не является корректным документом Excel (.xlsx)")
+
+    is_smeta = doc_type == "smeta"
+    doc_title = "Предварительная смета заказа" if is_smeta else "Актуальный оптовый прайс-лист"
+    subject = f"{doc_title} — ООО «Сандринтайм»"
+    recipient_label = current_user.company_name or current_user.full_name or "Уважаемый партнёр"
+
+    html_body = f"""
+    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.5;">
+      <h2 style="margin: 0 0 12px;">{doc_title}</h2>
+      <p>Здравствуйте, <strong>{recipient_label}</strong>!</p>
+      <p>Во вложении к этому письму находится запрошенный вами документ в формате Excel (<code>{safe_filename}</code>).</p>
+      <p style="color: #475569; font-size: 13px; margin-top: 20px;">
+        С уважением, команда <strong>ООО «Сандринтайм»</strong><br>
+        Тел.: +375 (29) 651-19-83
+      </p>
+    </div>
+    """
+
+    text_body = (
+        f"{doc_title}\n\n"
+        f"Здравствуйте, {recipient_label}!\n"
+        f"Во вложении находится запрошенный документ ({safe_filename}).\n\n"
+        f"С уважением, ООО «Сандринтайм» (+375 29 651-19-83)"
+    )
+
+    background_tasks.add_task(
+        email_service.send_email,
+        to_email=current_user.email,
+        subject=subject,
+        html_body=html_body,
+        text_body=text_body,
+        attachment_bytes=content,
+        attachment_filename=safe_filename,
+    )
+
+    return {"ok": True, "email": current_user.email}

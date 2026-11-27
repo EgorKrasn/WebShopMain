@@ -559,6 +559,7 @@ watch(searchQuery, (newVal) => {
             v-else
             :products="allProducts"
             :user-role="userRole"
+            :current-user="currentUser"
             :cart-items="cartItems"
             :search-query="searchQuery"
             :selected-category="selectedCategory"
@@ -570,6 +571,7 @@ watch(searchQuery, (newVal) => {
             @set-qty="handleSetQty"
             @reset-filters="resetFilters"
           />
+
 
         </div>
       </div>

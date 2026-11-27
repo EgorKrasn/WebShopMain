@@ -67,6 +67,19 @@ export const api = {
 			body: JSON.stringify(payload),
 		})
 	},
+	forgotPassword(payload) {
+		return request('/auth/forgot-password', {
+			method: 'POST',
+			body: JSON.stringify(payload),
+		})
+	},
+	resetPassword(payload) {
+		return request('/auth/reset-password', {
+			method: 'POST',
+			body: JSON.stringify(payload),
+		})
+	},
+
 	createOrder(payload) {
 		return request('/orders', {
 			method: 'POST',
@@ -88,6 +101,33 @@ export const api = {
 	getCategories() {
 		return request('/categories')
 	},
+	async sendExcelToEmail(blob, filename, docType = 'pricelist') {
+		const formData = new FormData()
+		formData.append('file', blob, filename)
+
+		const token = localStorage.getItem('sandrintime_token')
+		const params = new URLSearchParams({ doc_type: docType })
+		const response = await fetch(
+			`${API_URL}/email/send-excel?${params.toString()}`,
+			{
+				method: 'POST',
+				headers: token ? { Authorization: `Bearer ${token}` } : {},
+				body: formData,
+			},
+		)
+
+		const data = await response.json().catch(() => ({}))
+		if (!response.ok) {
+			if (response.status === 429) {
+				throw new Error(
+					'Слишком много отправок. Подождите несколько минут и попробуйте снова.',
+				)
+			}
+			throw new Error(data.detail || 'Не удалось отправить файл на Email')
+		}
+		return data
+	},
+
 	// --- АДМИН-ПАНЕЛЬ ---
 	adminGetWholesaleRequests() {
 		return request('/admin/wholesale-requests')
@@ -209,5 +249,15 @@ export const api = {
 			throw new Error(data.detail || 'Ошибка восстановления из резервной копии')
 		}
 		return data
+	},
+	adminTestTelegram() {
+		return request('/admin/telegram/test', {
+			method: 'POST',
+		})
+	},
+	adminTestEmail() {
+		return request('/admin/email/test', {
+			method: 'POST',
+		})
 	},
 }

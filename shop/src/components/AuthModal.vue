@@ -1,11 +1,9 @@
 <script setup>
 import { ref, reactive, watch } from 'vue'
 import { api } from '../services/api.js'
-import { ShoppingBag, Building2, X } from 'lucide-vue-next'
+import { ShoppingBag, Building2, X, ArrowLeft, KeyRound } from 'lucide-vue-next'
 import { useBackdropClose } from '../composables/useBackdropClose.js'
 import ConsentCheckbox from './ConsentCheckbox.vue'
-
-
 
 const props = defineProps({
   isOpen: {
@@ -21,17 +19,19 @@ const props = defineProps({
 const emit = defineEmits(['close', 'success'])
 const { onBackdropMouseDown, onBackdropMouseUp } = useBackdropClose(() => emit('close'))
 
-
+// Режимы: 'login' | 'register' | 'forgot' | 'reset'
 const mode = ref(props.initialMode)
 const accountType = ref('retail')
 const isLoading = ref(false)
 const errorMessage = ref('')
+const infoMessage = ref('')
 
 watch(
   () => props.initialMode,
   (newVal) => {
     mode.value = newVal
     errorMessage.value = ''
+    infoMessage.value = ''
   }
 )
 
@@ -40,7 +40,11 @@ watch(
   (opened) => {
     if (opened) {
       errorMessage.value = ''
+      infoMessage.value = ''
       personalDataConsent.value = false
+      if (mode.value === 'forgot' || mode.value === 'reset') {
+        mode.value = props.initialMode || 'login'
+      }
     }
   }
 )
@@ -53,15 +57,13 @@ const form = reactive({
   phone: '',
   unp: '',
   companyName: '',
-  legalAddress: ''
+  legalAddress: '',
+  resetCode: '',
+  newPassword: '',
+  confirmNewPassword: ''
 })
 
 const personalDataConsent = ref(false)
-
-
-const isCheckingUnp = ref(false)
-const unpStatusMessage = ref('')
-const isUnpVerified = ref(false)
 
 const onUnpInput = (event) => {
   const digitsOnly = event.target.value.replace(/[^0-9]/g, '').slice(0, 9)
@@ -69,25 +71,82 @@ const onUnpInput = (event) => {
   event.target.value = digitsOnly
 }
 
+const onResetCodeInput = (event) => {
+  const digitsOnly = event.target.value.replace(/[^0-9]/g, '').slice(0, 6)
+  form.resetCode = digitsOnly
+  event.target.value = digitsOnly
+}
+
 const switchMode = (newMode) => {
   mode.value = newMode
   errorMessage.value = ''
+  infoMessage.value = ''
 }
 
 const handleSubmit = async () => {
   errorMessage.value = ''
+  infoMessage.value = ''
+
+  if (mode.value === 'forgot') {
+    if (!form.email.trim()) {
+      errorMessage.value = 'Укажите email, привязанный к вашему аккаунту'
+      return
+    }
+    isLoading.value = true
+    try {
+      const res = await api.forgotPassword({ email: form.email.trim() })
+      form.resetCode = ''
+      form.newPassword = ''
+      form.confirmNewPassword = ''
+      mode.value = 'reset'
+      infoMessage.value =
+        res?.message ||
+        'Если аккаунт с таким email зарегистрирован, мы отправили на него 6-значный код.'
+    } catch (err) {
+      errorMessage.value = err.message || 'Не удалось отправить код восстановления'
+    } finally {
+      isLoading.value = false
+    }
+    return
+  }
+
+  if (mode.value === 'reset') {
+    const cleanCode = form.resetCode.replace(/[^0-9]/g, '')
+    if (cleanCode.length !== 6) {
+      errorMessage.value = 'Введите 6-значный код из письма'
+      return
+    }
+    if (form.newPassword.length < 8) {
+      errorMessage.value = 'Новый пароль должен содержать минимум 8 символов'
+      return
+    }
+    if (form.newPassword !== form.confirmNewPassword) {
+      errorMessage.value = 'Новые пароли не совпадают'
+      return
+    }
+
+    isLoading.value = true
+    try {
+      const res = await api.resetPassword({
+        email: form.email.trim(),
+        code: cleanCode,
+        new_password: form.newPassword
+      })
+      form.password = ''
+      mode.value = 'login'
+      infoMessage.value = res?.message || 'Пароль успешно изменён! Войдите с новым паролем.'
+    } catch (err) {
+      errorMessage.value = err.message || 'Не удалось сбросить пароль'
+    } finally {
+      isLoading.value = false
+    }
+    return
+  }
 
   if (mode.value === 'register') {
-    if (accountType.value === 'wholesale') {
-      if (form.password.length < 8) {
-        errorMessage.value = 'Пароль должен содержать минимум 8 символов'
-        return
-      }
-    } else {
-      if (form.password.length < 8) {
-        errorMessage.value = 'Пароль должен содержать минимум 8 символов'
-        return
-      }
+    if (form.password.length < 8) {
+      errorMessage.value = 'Пароль должен содержать минимум 8 символов'
+      return
     }
 
     if (form.password !== form.confirmPassword) {
@@ -100,7 +159,6 @@ const handleSubmit = async () => {
       return
     }
   }
-
 
   if (mode.value === 'register' && accountType.value === 'wholesale') {
     const cleanUnp = form.unp.replace(/[^0-9]/g, '')
@@ -125,7 +183,6 @@ const handleSubmit = async () => {
       })
     } else {
       userData = await api.register({
-        
         role: accountType.value,
         email: form.email.trim(),
         password: form.password,
@@ -152,9 +209,8 @@ const handleSubmit = async () => {
     isLoading.value = false
   }
 }
-
-
 </script>
+
 
 
 <template>
@@ -165,10 +221,7 @@ const handleSubmit = async () => {
       @mousedown.self="onBackdropMouseDown"
       @mouseup.self="onBackdropMouseUp"
     >
-
       <div class="modal-card" role="dialog" aria-modal="true" aria-label="Вход и регистрация">
-        
-        <!-- Шапка окна с рабочей кнопкой закрытия -->
         <div class="modal-header">
           <div class="modal-brand">
             <span class="brand-title">Сандрин<span class="brand-accent">Тайм</span></span>
@@ -176,131 +229,213 @@ const handleSubmit = async () => {
           <button type="button" class="close-btn" @click="emit('close')" aria-label="Закрыть окно">
             <X :size="18" />
           </button>
-
         </div>
 
-        <!-- Вкладки Вход / Регистрация -->
-        <div class="auth-tabs">
-          <button 
-            type="button" 
-            class="tab-btn" 
-            :class="{ active: mode === 'login' }" 
+        <!-- Вкладки Вход / Регистрация (показываются в обычном режиме) -->
+        <div v-if="mode === 'login' || mode === 'register'" class="auth-tabs">
+          <button
+            type="button"
+            class="tab-btn"
+            :class="{ active: mode === 'login' }"
             @click="switchMode('login')"
           >
             Вход в аккаунт
           </button>
-          <button 
-            type="button" 
-            class="tab-btn" 
-            :class="{ active: mode === 'register' }" 
+          <button
+            type="button"
+            class="tab-btn"
+            :class="{ active: mode === 'register' }"
             @click="switchMode('register')"
           >
             Регистрация
           </button>
         </div>
 
+        <!-- Шапка режима восстановления пароля -->
+        <div v-else class="recovery-header">
+          <button type="button" class="back-login-link" @click="switchMode('login')">
+            <ArrowLeft :size="15" />
+            <span>Вернуться ко входу</span>
+          </button>
+          <div class="recovery-title">
+            <KeyRound :size="18" color="#0284c7" />
+            <span>{{ mode === 'forgot' ? 'Восстановление пароля' : 'Ввод кода и нового пароля' }}</span>
+          </div>
+        </div>
+
         <form class="auth-form" @submit.prevent="handleSubmit">
-          
-          <!-- Выбор типа покупателя (только при регистрации) -->
-          <div v-if="mode === 'register'" class="account-type-block">
-            <label class="block-label">Тип покупателя:</label>
-            <div class="type-cards">
-              <button 
-                type="button" 
-                class="type-card" 
-                :class="{ selected: accountType === 'retail' }"
-                @click="accountType = 'retail'"
-              >
-                <span class="type-icon"><ShoppingBag :size="20" color="#0284c7" /></span>
-                <div class="type-info">
-                  <strong>Физлицо</strong>
-                  <span>Розничные покупки</span>
-                </div>
-              </button>
-
-              <button 
-                type="button" 
-                class="type-card" 
-                :class="{ selected: accountType === 'wholesale' }"
-                @click="accountType = 'wholesale'"
-              >
-                <span class="type-icon"><Building2 :size="20" color="#0f172a" /></span>
-                <div class="type-info">
-                  <strong>Юрлицо / ИП</strong>
-                  <span>Оптовые цены по УНП</span>
-                </div>
-              </button>
-
-            </div>
-          </div>
-
-          <!-- Поля для Юрлица / ИП (УНП и наименование) -->
-          <!-- Поля для Юрлица / ИП (УНП и наименование) -->
-          <div v-if="mode === 'register' && accountType === 'wholesale'" class="wholesale-fields">
-            <div class="field-group">
-              <label>УНП организации или ИП *</label>
-              <input 
-                :value="form.unp" 
-                @input="onUnpInput" 
-                type="text" 
-                inputmode="numeric"
-                maxlength="9"
-                placeholder="690876665" 
-                required 
-              />
-              <span class="unp-counter" :class="{ valid: form.unp.length === 9 }">
-                Введено цифр: {{ form.unp.length }} из 9
-              </span>
-            </div>
+          <!-- РЕЖИМ 1: ЗАПРОС КОДА НА EMAIL -->
+          <template v-if="mode === 'forgot'">
+            <p class="recovery-desc">
+              Укажите электронную почту, которую вы использовали при регистрации. Мы отправим на неё 6-значный код для сброса пароля.
+            </p>
 
             <div class="field-group">
-              <label>Наименование организации / ИП *</label>
-              <input 
-                v-model="form.companyName" 
-                type="text" 
-                placeholder="ООО «Сандринтайм»" 
-                required 
-              />
-            </div>
-          </div>
-
-
-          <!-- Поля ФИО и телефона (при регистрации) -->
-          <template v-if="mode === 'register'">
-            <div class="field-group">
-              <label>Контактное лицо (ФИО) *</label>
-              <input v-model="form.fullName" type="text" placeholder="Иванов Иван Иванович" required />
-            </div>
-
-            <div class="field-group">
-              <label>Телефон *</label>
-              <input v-model="form.phone" type="tel" placeholder="+375 (29) 123-45-67" required />
+              <label>Электронная почта (Email) *</label>
+              <input v-model="form.email" type="email" placeholder="name@example.by" required />
             </div>
           </template>
 
-          <!-- Email и Пароль -->
-          <div class="field-group">
-            <label>Электронная почта (Email) *</label>
-            <input v-model="form.email" type="email" placeholder="name@example.by" required />
-          </div>
+          <!-- РЕЖИМ 2: ВВОД 6-ЗНАЧНОГО КОДА И НОВОГО ПАРОЛЯ -->
+          <template v-else-if="mode === 'reset'">
+            <div class="field-group">
+              <label>Электронная почта</label>
+              <input v-model="form.email" type="email" required />
+            </div>
 
-          <div class="field-group">
-            <label>Пароль *</label>
-            <input
-              v-model="form.password"
-              type="password"
-              :placeholder="mode === 'register' ? 'Минимум 8 символов' : 'Введите пароль'"
-              required
-            />
-          </div>
+            <div class="field-group">
+              <label>Одноразовый код из письма (6 цифр) *</label>
+              <input
+                :value="form.resetCode"
+                @input="onResetCodeInput"
+                type="text"
+                inputmode="numeric"
+                maxlength="6"
+                placeholder="000000"
+                class="code-input"
+                required
+              />
+            </div>
 
-          <div v-if="mode === 'register'" class="field-group">
-            <label>Повторите пароль *</label>
-            <input v-model="form.confirmPassword" type="password" placeholder="Введите пароль ещё раз" required />
-          </div>
+            <div class="field-group">
+              <label>Новый пароль *</label>
+              <input
+                v-model="form.newPassword"
+                type="password"
+                placeholder="Минимум 8 символов"
+                required
+              />
+            </div>
 
-          <!-- ВСТАВЬТЕ ЭТУ СТРОКУ СЮДА (сразу перед error-banner и кнопкой submit-btn): -->
-          <ConsentCheckbox v-if="mode === 'register'" v-model="personalDataConsent" />
+            <div class="field-group">
+              <label>Повторите новый пароль *</label>
+              <input
+                v-model="form.confirmNewPassword"
+                type="password"
+                placeholder="Введите новый пароль ещё раз"
+                required
+              />
+            </div>
+
+            <button
+              type="button"
+              class="resend-code-btn"
+              :disabled="isLoading"
+              @click="switchMode('forgot')"
+            >
+              Отправить код повторно
+            </button>
+          </template>
+
+          <!-- РЕЖИМ 3 И 4: ВХОД И РЕГИСТРАЦИЯ -->
+          <template v-else>
+            <div v-if="mode === 'register'" class="account-type-block">
+              <label class="block-label">Тип покупателя:</label>
+              <div class="type-cards">
+                <button
+                  type="button"
+                  class="type-card"
+                  :class="{ selected: accountType === 'retail' }"
+                  @click="accountType = 'retail'"
+                >
+                  <span class="type-icon"><ShoppingBag :size="20" color="#0284c7" /></span>
+                  <div class="type-info">
+                    <strong>Физлицо</strong>
+                    <span>Розничные покупки</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  class="type-card"
+                  :class="{ selected: accountType === 'wholesale' }"
+                  @click="accountType = 'wholesale'"
+                >
+                  <span class="type-icon"><Building2 :size="20" color="#0f172a" /></span>
+                  <div class="type-info">
+                    <strong>Юрлицо / ИП</strong>
+                    <span>Оптовые цены по УНП</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="mode === 'register' && accountType === 'wholesale'" class="wholesale-fields">
+              <div class="field-group">
+                <label>УНП организации или ИП *</label>
+                <input
+                  :value="form.unp"
+                  @input="onUnpInput"
+                  type="text"
+                  inputmode="numeric"
+                  maxlength="9"
+                  placeholder="690876665"
+                  required
+                />
+                <span class="unp-counter" :class="{ valid: form.unp.length === 9 }">
+                  Введено цифр: {{ form.unp.length }} из 9
+                </span>
+              </div>
+
+              <div class="field-group">
+                <label>Наименование организации / ИП *</label>
+                <input
+                  v-model="form.companyName"
+                  type="text"
+                  placeholder="ООО «Сандринтайм»"
+                  required
+                />
+              </div>
+            </div>
+
+            <template v-if="mode === 'register'">
+              <div class="field-group">
+                <label>Контактное лицо (ФИО) *</label>
+                <input v-model="form.fullName" type="text" placeholder="Иванов Иван Иванович" required />
+              </div>
+
+              <div class="field-group">
+                <label>Телефон *</label>
+                <input v-model="form.phone" type="tel" placeholder="+375 (29) 123-45-67" required />
+              </div>
+            </template>
+
+            <div class="field-group">
+              <label>Электронная почта (Email) *</label>
+              <input v-model="form.email" type="email" placeholder="name@example.by" required />
+            </div>
+
+            <div class="field-group">
+              <div class="password-label-row">
+                <label>Пароль *</label>
+                <button
+                  v-if="mode === 'login'"
+                  type="button"
+                  class="forgot-link-btn"
+                  @click="switchMode('forgot')"
+                >
+                  Забыли пароль?
+                </button>
+              </div>
+              <input
+                v-model="form.password"
+                type="password"
+                :placeholder="mode === 'register' ? 'Минимум 8 символов' : 'Введите пароль'"
+                required
+              />
+            </div>
+
+            <div v-if="mode === 'register'" class="field-group">
+              <label>Повторите пароль *</label>
+              <input v-model="form.confirmPassword" type="password" placeholder="Введите пароль ещё раз" required />
+            </div>
+
+            <ConsentCheckbox v-if="mode === 'register'" v-model="personalDataConsent" />
+          </template>
+
+          <div v-if="infoMessage" class="info-banner">
+            {{ infoMessage }}
+          </div>
 
           <div v-if="errorMessage" class="error-banner">
             {{ errorMessage }}
@@ -308,20 +443,21 @@ const handleSubmit = async () => {
 
           <button type="submit" class="submit-btn" :disabled="isLoading">
             <span v-if="isLoading">Подождите...</span>
+            <span v-else-if="mode === 'forgot'">Отправить код на Email</span>
+            <span v-else-if="mode === 'reset'">Сохранить новый пароль</span>
             <span v-else-if="mode === 'login'">Войти</span>
             <span v-else>{{ accountType === 'wholesale' ? 'Отправить заявку на опт' : 'Зарегистрироваться' }}</span>
           </button>
-
 
           <p v-if="mode === 'register' && accountType === 'wholesale'" class="bottom-hint">
             Заявка с реквизитами будет проверена менеджером, после чего для аккаунта откроются оптовые цены.
           </p>
         </form>
-
       </div>
     </div>
   </Transition>
 </template>
+
 
 <style scoped>
 .modal-backdrop {
@@ -586,4 +722,99 @@ const handleSubmit = async () => {
     grid-template-columns: 1fr;
   }
 }
+
+.password-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.forgot-link-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #0284c7;
+  cursor: pointer;
+}
+
+.forgot-link-btn:hover {
+  text-decoration: underline;
+}
+
+.recovery-header {
+  padding: 16px 22px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.back-login-link {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.back-login-link:hover {
+  color: #0f172a;
+}
+
+.recovery-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.recovery-desc {
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.45;
+}
+
+.code-input {
+  font-size: 20px !important;
+  font-weight: 800;
+  letter-spacing: 6px;
+  text-align: center;
+}
+
+.resend-code-btn {
+  align-self: flex-end;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #0284c7;
+  cursor: pointer;
+}
+
+.resend-code-btn:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.info-banner {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background-color: #dcfce7;
+  border: 1px solid #86efac;
+  color: #166534;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 </style>

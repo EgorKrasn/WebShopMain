@@ -104,3 +104,20 @@ class SwitchRoleRequest(BaseModel):
             if not v or not v.isdigit() or len(v) != 9:
                 raise ValueError("УНП для Беларуси должен состоять ровно из 9 цифр")
         return v
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(..., min_length=6, max_length=6)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+    @field_validator("code")
+    @classmethod
+    def validate_reset_code(cls, v):
+        clean = v.strip()
+        if not clean.isdigit() or len(clean) != 6:
+            raise ValueError("Код должен состоять из 6 цифр")
+        return clean
