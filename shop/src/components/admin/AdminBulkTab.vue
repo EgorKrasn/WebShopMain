@@ -98,44 +98,42 @@ const downloadUpdateTemplate = async () => {
     'Категория (справочно)': p.category || '',
     'Статус склада': getStockStatusLabel(p.stock),
     'Текущая розница (BYN)': Number(p.retailPrice || 0),
-    'Текущий опт (BYN)': Number(p.wholesalePrice || 0),
-    'Текущий остаток (шт.)': Number(p.stock ?? 0),
     'Новая розничная цена (BYN)': '',
+    'Текущий опт (BYN)': Number(p.wholesalePrice || 0),
     'Новая оптовая цена (BYN)': '',
+    'Текущий остаток (шт.)': Number(p.stock ?? 0),
     'Остаток (прибавить или заменить, шт.)': ''
   }))
 
   const ws = XLSX.utils.json_to_sheet(rows)
   const lastRow = rows.length + 1
 
-  // 1. Включаем поиск и автофильтр в верхней строке заголовков (A1:L...)
   ws['!autofilter'] = { ref: `A1:L${lastRow}` }
-
-  // 2. Закрепляем верхнюю строку при прокрутке
   ws['!freeze'] = { xSplit: 0, ySplit: 1 }
 
-  // 3. Ширина колонок
   ws['!cols'] = [
-    { wch: 6 },   // №
-    { wch: 18 },  // Артикул
-    { wch: 36 },  // Наименование
-    { wch: 16 },  // Цвет
-    { wch: 24 },  // Категория
-    { wch: 19 },  // Статус склада
-    { wch: 22 },  // Текущая розница
-    { wch: 20 },  // Текущий опт
-    { wch: 22 },  // Текущий остаток
-    { wch: 26 },  // Новая розница
-    { wch: 24 },  // Новый опт
-    { wch: 34 }   // Остаток (изменение)
+    { wch: 6 },   // A: №
+    { wch: 18 },  // B: Артикул
+    { wch: 36 },  // C: Наименование
+    { wch: 16 },  // D: Цвет
+    { wch: 24 },  // E: Категория
+    { wch: 19 },  // F: Статус склада
+    { wch: 22 },  // G: Текущая розница
+    { wch: 26 },  // H: Новая розничная цена
+    { wch: 20 },  // I: Текущий опт
+    { wch: 24 },  // J: Новая оптовая цена
+    { wch: 22 },  // K: Текущий остаток
+    { wch: 34 }   // L: Остаток (изменение)
   ]
 
-  // 4. Форматирование чисел (цены с 2 знаками, остатки целые)
+  // Форматирование чисел: G, H, I, J — цены (0.00), K, L — остатки (0)
   for (let r = 2; r <= lastRow; r++) {
-    for (const col of ['G', 'H']) {
+    for (const col of ['G', 'H', 'I', 'J']) {
       if (ws[`${col}${r}`]) ws[`${col}${r}`].z = '0.00'
     }
-    if (ws[`I${r}`]) ws[`I${r}`].z = '0'
+    for (const col of ['K', 'L']) {
+      if (ws[`${col}${r}`]) ws[`${col}${r}`].z = '0'
+    }
   }
 
   const borderThin = {
@@ -147,7 +145,7 @@ const downloadUpdateTemplate = async () => {
 
   const headerBaseStyle = {
     font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
-    alignment: { vertical: 'center', horizontal: 'left', wrapText: true },
+    alignment: { vertical: 'center', horizontal: 'center', wrapText: true },
     border: {
       top: { style: 'medium', color: { rgb: '0F172A' } },
       bottom: { style: 'medium', color: { rgb: '0F172A' } },
@@ -157,21 +155,27 @@ const downloadUpdateTemplate = async () => {
   }
 
   const colsLetters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']
+  const oldValueCols = new Set([6, 8, 10])  // G, I, K — прежние значения
+  const newValueCols = new Set([7, 9, 11])  // H, J, L — новые значения (зона ввода)
 
-  // Высота строк (шапка повыше)
-  ws['!rows'] = [{ hpt: 28 }, ...rows.map(() => ({ hpt: 21 }))]
+  ws['!rows'] = [{ hpt: 30 }, ...rows.map(() => ({ hpt: 21 }))]
 
-  // Стили шапки (строка 1)
+  // Шапка (строка 1): колонки ввода H, J, L выделены тёмно-зелёным, остальные — тёмно-синим
   colsLetters.forEach((col, idx) => {
     const ref = `${col}1`
     if (!ws[ref]) return
     ws[ref].s = {
       ...headerBaseStyle,
-      fill: { fgColor: { rgb: idx >= 9 ? '14532D' : '0F172A' } }
+      alignment: {
+        vertical: 'center',
+        horizontal: idx >= 1 && idx <= 4 ? 'left' : 'center',
+        wrapText: true
+      },
+      fill: { fgColor: { rgb: newValueCols.has(idx) ? '14532D' : '0F172A' } }
     }
   })
 
-  // Стили строк данных (полосатая структура + рамки + цвет статуса склада)
+  // Строки данных
   for (let r = 2; r <= lastRow; r++) {
     const isEven = r % 2 === 0
     const rowData = rows[r - 2]
@@ -180,16 +184,24 @@ const downloadUpdateTemplate = async () => {
       const ref = `${col}${r}`
       if (!ws[ref]) ws[ref] = { t: 's', v: '' }
 
-      // Базовый цвет полосы: A:I голубая/белая, J:L зелёная зона ввода
       let bgRgb = isEven ? 'E0F2FE' : 'FFFFFF'
       let fontStyle = { color: { rgb: '0F172A' }, sz: 10.5 }
+      let horizontalAlign = 'left'
 
-      if (idx >= 9) {
+      if (idx === 0) {
+        horizontalAlign = 'center'
+      } else if (oldValueCols.has(idx)) {
+        // Прежние значения: полужирные, по центру
+        fontStyle = { color: { rgb: '0F172A' }, bold: true, sz: 10.5 }
+        horizontalAlign = 'center'
+      } else if (newValueCols.has(idx)) {
+        // Новые значения: зелёная зона ввода, обычный шрифт, по центру
         bgRgb = isEven ? 'DCFCE7' : 'F0FDF4'
-      }
-
-      // Цветовая подсветка статуса склада в колонке F (idx === 5)
-      if (idx === 5 && rowData) {
+        fontStyle = { color: { rgb: '0F172A' }, bold: false, sz: 10.5 }
+        horizontalAlign = 'center'
+      } else if (idx === 5 && rowData) {
+        // Статус склада
+        horizontalAlign = 'center'
         const statusText = String(rowData['Статус склада'] || '')
         if (statusText.includes('Нет в наличии')) {
           bgRgb = 'FEE2E2'
@@ -209,13 +221,11 @@ const downloadUpdateTemplate = async () => {
         border: borderThin,
         alignment: {
           vertical: 'center',
-          horizontal: idx === 0 || idx >= 6 ? 'right' : 'left'
+          horizontal: horizontalAlign
         }
       }
     })
   }
-
-
 
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Цены и остатки')
@@ -223,6 +233,7 @@ const downloadUpdateTemplate = async () => {
   const today = new Date().toISOString().slice(0, 10)
   await saveWorkbookCrossPlatform(wb, `Template_Update_Prices_Stock_${today}.xlsx`)
 }
+
 
 
 const handleUpdateFileChange = async (event) => {
